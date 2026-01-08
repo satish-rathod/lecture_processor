@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# MacOS
+.DS_Store
+
+# Video Processing Outputs
+scaler_videos/
+*.mp4
+*.ts
+*.mkv
+concat.txt
