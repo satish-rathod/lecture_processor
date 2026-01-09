@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scaler Companion</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="logo">
+        <img src="../icons/icon48.png" alt="Scaler Companion" class="logo-icon">
+        <h1>Scaler Companion</h1>
+      </div>
+      <span class="version">v1.0.0</span>
+    </header>
+
+    <main class="main">
+      <!-- Status Section -->
+      <section class="status-section">
+        <div class="status-indicator" id="statusIndicator">
+          <span class="status-dot"></span>
+          <span class="status-text">Ready</span>
+        </div>
+      </section>
+
+      <!-- Lecture Detection -->
+      <section class="detection-section" id="detectionSection">
+        <div class="card">
+          <div class="card-icon">🎬</div>
+          <div class="card-content">
+            <h3 id="lectureTitle">No Lecture Detected</h3>
+            <p id="lectureInfo">Navigate to a Scaler lecture page</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Download Controls -->
+      <section class="controls-section" id="controlsSection" style="display: none;">
+        <button class="btn btn-primary" id="downloadBtn">
+          <span class="btn-icon">⬇️</span>
+          Download Lecture
+        </button>
+
+        <div class="progress-container" id="progressContainer" style="display: none;">
+          <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+          <span class="progress-text" id="progressText">0%</span>
+        </div>
+      </section>
+
+      <!-- Developer Mode Section -->
+      <section class="dev-mode-section" id="devModeSection">
+        <div class="dev-mode-toggle">
+          <label class="toggle-label">
+            <span class="toggle-text">🛠️ Developer Mode</span>
+            <div class="toggle-switch">
+              <input type="checkbox" id="devModeToggle">
+              <span class="toggle-slider"></span>
+            </div>
+          </label>
+          <span class="dev-mode-badge" id="devModeBadge" style="display: none;">DEV</span>
+        </div>
+
+        <div class="dev-mode-options" id="devModeOptions" style="display: none;">
+          <p class="dev-mode-hint">⚡ Limited to 20 chunks for faster testing</p>
+          <div class="time-inputs">
+            <div class="time-input-group">
+              <label for="startTime">Start Time</label>
+              <input type="text" id="startTime" placeholder="00:00:00" value="00:00:00">
+            </div>
+            <div class="time-input-group">
+              <label for="endTime">End Time</label>
+              <input type="text" id="endTime" placeholder="00:10:00" value="00:10:00">
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Processing Section -->
+      <section class="processing-section" id="processingSection" style="display: none;">
+        <h3>Process Downloaded Lecture</h3>
+        <div class="processing-options">
+          <label class="checkbox-label">
+            <input type="checkbox" id="optTranscribe" checked>
+            <span>📝 Transcribe Audio</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="optNotes" checked>
+            <span>📋 Generate Notes</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="optAnnouncements" checked>
+            <span>📢 Extract Announcements</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="optFilter">
+            <span>⏩ Filter Irrelevant Parts</span>
+          </label>
+        </div>
+        <button class="btn btn-secondary" id="processBtn">
+          <span class="btn-icon">🤖</span>
+          Process with AI
+        </button>
+      </section>
+
+      <!-- Recent Downloads -->
+      <section class="recent-section" id="recentSection">
+        <h3>Recent Downloads</h3>
+        <div class="recent-list" id="recentList">
+          <p class="empty-state">No downloads yet</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <button class="btn btn-link" id="settingsBtn">⚙️ Settings</button>
+      <span class="backend-status" id="backendStatus">
+        <span class="status-dot offline"></span>
+        Backend
+      </span>
+    </footer>
+  </div>
+  <script src="popup.js"></script>
+</body>
+
+</html>

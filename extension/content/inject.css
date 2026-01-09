@@ -1,0 +1,73 @@
+/**
+ * Scaler Companion - Injected Styles
+ */
+
+/* Download Button */
+#scaler-companion-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    z-index: 10000;
+}
+
+#scaler-companion-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+}
+
+#scaler-companion-btn:active {
+    transform: translateY(0);
+}
+
+#scaler-companion-btn.floating {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+#scaler-companion-btn .sc-icon {
+    font-size: 16px;
+}
+
+#scaler-companion-btn .sc-text {
+    white-space: nowrap;
+}
+
+/* Status Toast */
+.scaler-companion-toast {
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    padding: 12px 20px;
+    background: rgba(15, 15, 26, 0.95);
+    color: white;
+    border-radius: 8px;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 14px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    z-index: 10001;
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}

@@ -1,39 +1,96 @@
-# Scaler Academy Video Downloader & Converter
+# Scaler Companion
 
-A Python script to download HLS video chunks from Scaler Academy, merge them into a single video file, and split them into 2-minute clips.
+> 🎓 A Chrome browser extension to download Scaler Academy lectures and generate AI-powered notes locally.
 
-## Prerequisites
+## Features
 
-- **Python 3.x**
-- **FFmpeg** and **FFprobe** must be installed and accessible in your system PATH.
-  - MacOS: `brew install ffmpeg`
+- **📥 One-Click Download** - Download recorded lectures directly from Scaler Academy
+- **🎤 Audio Transcription** - Transcribe lectures using local Whisper model
+- **📝 AI Notes Generation** - Generate detailed Markdown notes with GPT-OSS 20B
+- **📢 Announcement Extraction** - Automatically extract deadlines and announcements
+- **⏩ Smart Filtering** - Skip blank screens, attendance, and irrelevant parts
 
-## Installation
+## Project Structure
 
-1. Clone this repository.
-2. Install Python dependencies:
-   ```bash
-   pip install requests
-   ```
+```
+lecture_processor/
+├── extension/               # Chrome Extension
+│   ├── manifest.json       # Extension manifest (V3)
+│   ├── popup/              # Extension popup UI
+│   ├── content/            # Content scripts for Scaler pages
+│   ├── background/         # Service worker
+│   └── icons/              # Extension icons
+│
+├── backend/                 # Python Backend
+│   ├── server.py           # FastAPI server
+│   ├── downloader.py       # Video download module
+│   └── requirements.txt    # Python dependencies
+│
+├── output/                  # Generated outputs
+│   ├── videos/             # Downloaded lectures
+│   ├── transcripts/        # Audio transcripts
+│   ├── notes/              # Generated notes
+│   └── announcements/      # Extracted announcements
+│
+└── main.py                  # Legacy standalone downloader
+```
 
-## Usage
+## Quick Start
 
-1. Open `main.py` and configure the following variables in the `main()` function with values from your browser's Network tab (look for `.ts` file requests):
-   - `BASE_URL`: The URL path to the video segments.
-   - `START_CHUNK`: The first chunk index.
-   - `END_CHUNK`: The last chunk index.
-   - `KEY_PAIR_ID`: CloudFront Key-Pair-Id.
-   - `POLICY`: CloudFront Policy.
-   - `SIGNATURE`: CloudFront Signature.
+### 1. Install Backend
 
-2. Run the script:
-   ```bash
-   python main.py
-   ```
+```bash
+cd backend
+pip install -r requirements.txt
+python server.py
+```
 
-## Output
+### 2. Load Chrome Extension
 
-The script will create a `scaler_videos` directory containing:
-- `chunks/`: Individual `.ts` video segments.
-- `clips/`: The final video split into 2-minute segments (e.g., `clip_001.mp4`, `clip_002.mp4`).
-- `full_video.mp4`: The complete merged video.
+1. Open Chrome and go to `chrome://extensions/`
+2. Enable "Developer mode" (top right)
+3. Click "Load unpacked"
+4. Select the `extension/` folder
+
+### 3. Use the Extension
+
+1. Navigate to a Scaler Academy lecture
+2. Click the Scaler Companion extension icon
+3. Click "Download Lecture"
+4. After download, click "Process with AI"
+
+## Requirements
+
+- **Python 3.10+**
+- **FFmpeg** - For video processing (`brew install ffmpeg`)
+- **Chrome Browser** - For the extension
+
+### For AI Processing (Phase 2+)
+
+- **Ollama** - For local LLM inference
+- **GPU (optional)** - For faster transcription
+
+## Development Status
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| 1 | Chrome Extension Skeleton | ✅ Complete |
+| 1 | Backend API | ✅ Complete |
+| 2 | Audio Transcription | 🔜 Planned |
+| 3 | Video Analysis | 🔜 Planned |
+| 4 | LLM Notes Generation | 🔜 Planned |
+| 5 | Polish & UX | 🔜 Planned |
+
+## Legacy Downloader
+
+The original standalone video downloader is still available:
+
+```bash
+python main.py
+```
+
+Configure the video URL and CloudFront credentials in the `main()` function.
+
+## License
+
+MIT
