@@ -52,6 +52,96 @@ class VideoDownloader:
         if self.progress_callback:
             self.progress_callback(current, total, message)
     
+    def _build_chunk_url(
+        self,
+        base_url: str,
+        chunk_num: int,
+        pattern: str,
+        key_pair_id: str = None,
+        policy: str = None,
+        signature: str = None
+    ) -> str:
+        """Build a chunk URL with proper formatting and auth params"""
+        from urllib.parse import quote
+        
+        # Ensure base URL ends with /
+        base_url = base_url.rstrip('/') + '/'
+        
+        # Format chunk filename based on pattern
+        if '{}' in pattern:
+            chunk_filename = pattern.format(chunk_num)
+        else:
+            chunk_filename = f"data{chunk_num}.ts"
+        
+        url = f"{base_url}{chunk_filename}"
+        
+        # Build auth params with proper URL encoding
+        params = []
+        if key_pair_id:
+            params.append(f"Key-Pair-Id={key_pair_id}")
+        if policy:
+            # Policy is Base64 and may contain special chars - URL encode it
+            params.append(f"Policy={quote(policy, safe='')}")
+        if signature:
+            # Signature is Base64 and may contain special chars - URL encode it
+            params.append(f"Signature={quote(signature, safe='')}")
+        
+        if params:
+            url += "?" + "&".join(params)
+        
+        return url
+    
+    def _try_download_chunk(
+        self,
+        session,
+        base_url: str,
+        chunk_num: int,
+        key_pair_id: str = None,
+        policy: str = None,
+        signature: str = None
+    ) -> tuple:
+        """
+        Try downloading a chunk with multiple naming patterns.
+        Returns: (content, successful_pattern) or (None, None)
+        """
+        # Patterns to try, in order of likelihood
+        patterns = [
+            f"data{chunk_num}.ts",                    # No padding (most common for Scaler)
+            f"data{chunk_num:06d}.ts",                # 6-digit padding
+            f"data{chunk_num:05d}.ts",                # 5-digit padding  
+            f"data{chunk_num:04d}.ts",                # 4-digit padding
+            f"chunk_{chunk_num}.ts",                  # Alternative prefix
+            f"segment{chunk_num}.ts",                 # Another alternative
+        ]
+        
+        base_url = base_url.rstrip('/') + '/'
+        
+        for pattern in patterns:
+            url = f"{base_url}{pattern}"
+            
+            # Add auth params
+            params = []
+            if key_pair_id:
+                params.append(f"Key-Pair-Id={key_pair_id}")
+            if policy:
+                from urllib.parse import quote
+                params.append(f"Policy={quote(policy, safe='')}")
+            if signature:
+                from urllib.parse import quote
+                params.append(f"Signature={quote(signature, safe='')}")
+            
+            if params:
+                url += "?" + "&".join(params)
+            
+            try:
+                response = session.get(url, timeout=15)
+                if response.ok and len(response.content) > 1000:  # Valid chunk should be > 1KB
+                    return response.content, pattern
+            except requests.RequestException:
+                continue
+        
+        return None, None
+
     def download_chunks(
         self, 
         base_url: str, 
@@ -76,6 +166,10 @@ class VideoDownloader:
             True if all chunks downloaded successfully
         """
         logger.info(f"Starting download of chunks {start_chunk} to {end_chunk}")
+        logger.info(f"Base URL: {base_url}")
+        
+        # Normalize base URL
+        base_url = base_url.rstrip('/') + '/'
         
         session = requests.Session()
         session.headers.update({
@@ -84,46 +178,75 @@ class VideoDownloader:
         
         total_chunks = end_chunk - start_chunk + 1
         success_count = 0
+        detected_pattern = None  # Will be set after first successful download
+        consecutive_failures = 0
+        max_consecutive_failures = 10  # Stop if too many failures in a row
         
         for i in range(start_chunk, end_chunk + 1):
-            chunk_num = f"{i:06d}"
-            chunk_filename = f"data{chunk_num}.ts"
-            chunk_path = self.chunks_dir / chunk_filename
+            # Use detected pattern if available, otherwise use default
+            if detected_pattern:
+                chunk_filename = detected_pattern.replace(str(start_chunk), str(i)) if str(start_chunk) in detected_pattern else f"data{i}.ts"
+            else:
+                chunk_filename = f"data{i}.ts"
+            
+            chunk_path = self.chunks_dir / chunk_filename.split('/')[-1].split('?')[0]
             
             # Skip if already downloaded
-            if chunk_path.exists():
+            if chunk_path.exists() and chunk_path.stat().st_size > 1000:
                 logger.info(f"✓ Chunk {i} already exists, skipping...")
                 success_count += 1
+                consecutive_failures = 0
                 self._update_progress(i - start_chunk + 1, total_chunks, f"Chunk {i} (cached)")
                 continue
             
-            # Build URL
-            url = f"{base_url}data{chunk_num}.ts"
-            params = []
-            if key_pair_id:
-                params.append(f"Key-Pair-Id={key_pair_id}")
-            if policy:
-                params.append(f"Policy={policy}")
-            if signature:
-                params.append(f"Signature={signature}")
-                
-            if params:
-                url += "?" + "&".join(params)
+            self._update_progress(i - start_chunk + 1, total_chunks, f"Downloading chunk {i}")
+            
+            # If we don't have a pattern yet, try multiple formats
+            if detected_pattern is None:
+                content, pattern = self._try_download_chunk(
+                    session, base_url, i, key_pair_id, policy, signature
+                )
+                if content:
+                    detected_pattern = pattern
+                    logger.info(f"✓ Detected chunk pattern: {pattern}")
+                    
+                    # Save with the actual filename from pattern
+                    actual_filename = pattern.split('/')[-1].split('?')[0]
+                    chunk_path = self.chunks_dir / actual_filename
+                    
+                    with open(chunk_path, 'wb') as f:
+                        f.write(content)
+                    
+                    logger.info(f"✓ Downloaded: {actual_filename} ({len(content) / 1024:.1f} KB)")
+                    success_count += 1
+                    consecutive_failures = 0
+                    continue
+            
+            # Use detected pattern for remaining chunks
+            url = self._build_chunk_url(base_url, i, detected_pattern or "{}.ts", key_pair_id, policy, signature)
             
             try:
-                self._update_progress(i - start_chunk + 1, total_chunks, f"Downloading chunk {i}")
                 response = session.get(url, timeout=30)
                 response.raise_for_status()
+                
+                if len(response.content) < 1000:
+                    logger.warning(f"Chunk {i} seems too small ({len(response.content)} bytes), may be invalid")
                 
                 with open(chunk_path, 'wb') as f:
                     f.write(response.content)
                 
                 logger.info(f"✓ Downloaded: {chunk_filename} ({len(response.content) / 1024:.1f} KB)")
                 success_count += 1
+                consecutive_failures = 0
                 
             except requests.RequestException as e:
                 logger.error(f"✗ Failed to download chunk {i}: {e}")
-                # Continue with next chunk instead of failing completely
+                consecutive_failures += 1
+                
+                # If too many consecutive failures, we might be past the end
+                if consecutive_failures >= max_consecutive_failures:
+                    logger.warning(f"Too many consecutive failures, stopping at chunk {i}")
+                    break
                 continue
         
         logger.info(f"Downloaded {success_count}/{total_chunks} chunks")

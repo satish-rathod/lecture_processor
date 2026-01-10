@@ -11,6 +11,75 @@
     let capturedStreamInfo = null;
     let isLiveSession = false;
     let recordingUrl = null;
+    let lastKnownUrl = window.location.href;
+
+    // ============================================
+    // Navigation State Management (SPA fix)
+    // ============================================
+
+    /**
+     * Reset all stream-related state when navigating to a new page.
+     * This fixes the bug where the same video downloads every time.
+     */
+    function resetStreamState() {
+        console.log('[Scaler Companion] Resetting stream state for new page');
+        capturedStreamInfo = null;
+        currentLecture = null;
+        recordingUrl = null;
+        isLiveSession = false;
+
+        // Notify background worker to clear cached stream info for this tab
+        chrome.runtime.sendMessage({
+            action: 'pageNavigated'
+        }).catch(() => { }); // Ignore if background not ready
+    }
+
+    /**
+     * Check if URL has changed (SPA navigation detection)
+     */
+    function checkUrlChange() {
+        const currentUrl = window.location.href;
+        if (currentUrl !== lastKnownUrl) {
+            console.log('[Scaler Companion] URL changed:', lastKnownUrl, '->', currentUrl);
+            lastKnownUrl = currentUrl;
+            resetStreamState();
+
+            // Re-detect lecture after navigation with delay for page load
+            setTimeout(() => {
+                captureExistingRequests();
+                detectLecture();
+                monitorVideoElements();
+            }, 1500);
+        }
+    }
+
+    /**
+     * Set up navigation listeners for SPA
+     */
+    function setupNavigationListeners() {
+        // Override History API to detect pushState/replaceState
+        const originalPushState = history.pushState;
+        history.pushState = function (...args) {
+            originalPushState.apply(this, args);
+            setTimeout(checkUrlChange, 100);
+        };
+
+        const originalReplaceState = history.replaceState;
+        history.replaceState = function (...args) {
+            originalReplaceState.apply(this, args);
+            setTimeout(checkUrlChange, 100);
+        };
+
+        // Listen for back/forward navigation
+        window.addEventListener('popstate', () => {
+            setTimeout(checkUrlChange, 100);
+        });
+
+        // Periodic check as fallback for edge cases
+        setInterval(checkUrlChange, 3000);
+
+        console.log('[Scaler Companion] Navigation listeners set up');
+    }
 
     // ============================================
     // Session Type Detection
@@ -477,6 +546,9 @@
     function init() {
         console.log('[Scaler Companion] Content script loaded');
 
+        // Set up SPA navigation detection FIRST
+        setupNavigationListeners();
+
         // Capture any requests that happened before script loaded
         captureExistingRequests();
 
@@ -496,6 +568,8 @@
             // Debounce detection
             clearTimeout(window._scCompanionDebounce);
             window._scCompanionDebounce = setTimeout(() => {
+                // Check for URL change first
+                checkUrlChange();
                 captureExistingRequests();
                 detectLecture();
                 injectDownloadButton();

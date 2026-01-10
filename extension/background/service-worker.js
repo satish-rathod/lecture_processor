@@ -34,6 +34,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({ success: true });
             break;
 
+        case 'pageNavigated':
+            // Content script detected SPA navigation - clear cached stream data
+            handlePageNavigated(sender);
+            sendResponse({ success: true });
+            break;
+
         case 'startDownload':
             handleStartDownload(message, sendResponse);
             return true; // Keep channel open for async
@@ -83,6 +89,16 @@ function handleAuthCapture(message, sender) {
 
     Object.assign(capturedStreams.get(tabId), message.auth);
     console.log('[Background] Auth captured for tab', tabId);
+}
+
+function handlePageNavigated(sender) {
+    const tabId = sender.tab?.id;
+    if (!tabId) return;
+
+    if (capturedStreams.has(tabId)) {
+        capturedStreams.delete(tabId);
+        console.log('[Background] Cleared stream data on SPA navigation for tab', tabId);
+    }
 }
 
 // ============================================
