@@ -52,25 +52,32 @@ class VideoDownloader:
         if self.progress_callback:
             self.progress_callback(current, total, message)
     
-    def _build_chunk_url(
+    def _build_chunk_url_from_format(
         self,
         base_url: str,
         chunk_num: int,
-        pattern: str,
+        format_info: dict,
         key_pair_id: str = None,
         policy: str = None,
         signature: str = None
     ) -> str:
-        """Build a chunk URL with proper formatting and auth params"""
+        """Build a chunk URL using format_info dict with proper auth params"""
         from urllib.parse import quote
         
         # Ensure base URL ends with /
         base_url = base_url.rstrip('/') + '/'
         
-        # Format chunk filename based on pattern
-        if '{}' in pattern:
-            chunk_filename = pattern.format(chunk_num)
+        # Generate filename using format info
+        if format_info:
+            prefix = format_info["prefix"]
+            padding = format_info["padding"]
+            suffix = format_info["suffix"]
+            if padding > 0:
+                chunk_filename = f"{prefix}{chunk_num:0{padding}d}{suffix}"
+            else:
+                chunk_filename = f"{prefix}{chunk_num}{suffix}"
         else:
+            # Fallback to default format
             chunk_filename = f"data{chunk_num}.ts"
         
         url = f"{base_url}{chunk_filename}"
@@ -102,32 +109,45 @@ class VideoDownloader:
     ) -> tuple:
         """
         Try downloading a chunk with multiple naming patterns.
-        Returns: (content, successful_pattern) or (None, None)
+        Returns: (content, format_info_dict) or (None, None)
+        
+        format_info_dict contains:
+            - prefix: e.g., "data"
+            - padding: number of digits for zero-padding (0 means no padding)
+            - suffix: e.g., ".ts"
         """
-        # Patterns to try, in order of likelihood
-        patterns = [
-            f"data{chunk_num}.ts",                    # No padding (most common for Scaler)
-            f"data{chunk_num:06d}.ts",                # 6-digit padding
-            f"data{chunk_num:05d}.ts",                # 5-digit padding  
-            f"data{chunk_num:04d}.ts",                # 4-digit padding
-            f"chunk_{chunk_num}.ts",                  # Alternative prefix
-            f"segment{chunk_num}.ts",                 # Another alternative
+        from urllib.parse import quote
+        
+        # Patterns to try: (prefix, padding_digits)
+        # We try different combinations ordered by likelihood for Scaler
+        pattern_configs = [
+            ("data", 6),    # data000090.ts - 6-digit padding (detected from your logs!)
+            ("data", 0),    # data90.ts - no padding
+            ("data", 5),    # data00090.ts - 5-digit padding  
+            ("data", 4),    # data0090.ts - 4-digit padding
+            ("chunk_", 0),  # chunk_90.ts
+            ("segment", 0), # segment90.ts
         ]
         
         base_url = base_url.rstrip('/') + '/'
         
-        for pattern in patterns:
-            url = f"{base_url}{pattern}"
+        for prefix, padding in pattern_configs:
+            # Format the chunk number with appropriate padding
+            if padding > 0:
+                formatted_num = f"{chunk_num:0{padding}d}"
+            else:
+                formatted_num = str(chunk_num)
+            
+            filename = f"{prefix}{formatted_num}.ts"
+            url = f"{base_url}{filename}"
             
             # Add auth params
             params = []
             if key_pair_id:
                 params.append(f"Key-Pair-Id={key_pair_id}")
             if policy:
-                from urllib.parse import quote
                 params.append(f"Policy={quote(policy, safe='')}")
             if signature:
-                from urllib.parse import quote
                 params.append(f"Signature={quote(signature, safe='')}")
             
             if params:
@@ -136,7 +156,14 @@ class VideoDownloader:
             try:
                 response = session.get(url, timeout=15)
                 if response.ok and len(response.content) > 1000:  # Valid chunk should be > 1KB
-                    return response.content, pattern
+                    # Return format info instead of literal filename
+                    format_info = {
+                        "prefix": prefix,
+                        "padding": padding,
+                        "suffix": ".ts"
+                    }
+                    logger.info(f"Found working pattern: {prefix} with {padding}-digit padding")
+                    return response.content, format_info
             except requests.RequestException:
                 continue
         
@@ -178,18 +205,24 @@ class VideoDownloader:
         
         total_chunks = end_chunk - start_chunk + 1
         success_count = 0
-        detected_pattern = None  # Will be set after first successful download
+        format_info = None  # Will be set after first successful download: {prefix, padding, suffix}
         consecutive_failures = 0
         max_consecutive_failures = 10  # Stop if too many failures in a row
         
         for i in range(start_chunk, end_chunk + 1):
-            # Use detected pattern if available, otherwise use default
-            if detected_pattern:
-                chunk_filename = detected_pattern.replace(str(start_chunk), str(i)) if str(start_chunk) in detected_pattern else f"data{i}.ts"
+            # Generate filename using detected format or default
+            if format_info:
+                prefix = format_info["prefix"]
+                padding = format_info["padding"]
+                suffix = format_info["suffix"]
+                if padding > 0:
+                    chunk_filename = f"{prefix}{i:0{padding}d}{suffix}"
+                else:
+                    chunk_filename = f"{prefix}{i}{suffix}"
             else:
                 chunk_filename = f"data{i}.ts"
             
-            chunk_path = self.chunks_dir / chunk_filename.split('/')[-1].split('?')[0]
+            chunk_path = self.chunks_dir / chunk_filename
             
             # Skip if already downloaded
             if chunk_path.exists() and chunk_path.stat().st_size > 1000:
@@ -201,17 +234,24 @@ class VideoDownloader:
             
             self._update_progress(i - start_chunk + 1, total_chunks, f"Downloading chunk {i}")
             
-            # If we don't have a pattern yet, try multiple formats
-            if detected_pattern is None:
-                content, pattern = self._try_download_chunk(
+            # If we don't have a format yet, try multiple formats
+            if format_info is None:
+                content, detected_format = self._try_download_chunk(
                     session, base_url, i, key_pair_id, policy, signature
                 )
-                if content:
-                    detected_pattern = pattern
-                    logger.info(f"✓ Detected chunk pattern: {pattern}")
+                if content and detected_format:
+                    format_info = detected_format
+                    logger.info(f"✓ Detected format: prefix='{format_info['prefix']}', padding={format_info['padding']}")
                     
-                    # Save with the actual filename from pattern
-                    actual_filename = pattern.split('/')[-1].split('?')[0]
+                    # Generate filename using detected format
+                    prefix = format_info["prefix"]
+                    padding = format_info["padding"]
+                    suffix = format_info["suffix"]
+                    if padding > 0:
+                        actual_filename = f"{prefix}{i:0{padding}d}{suffix}"
+                    else:
+                        actual_filename = f"{prefix}{i}{suffix}"
+                    
                     chunk_path = self.chunks_dir / actual_filename
                     
                     with open(chunk_path, 'wb') as f:
@@ -222,8 +262,8 @@ class VideoDownloader:
                     consecutive_failures = 0
                     continue
             
-            # Use detected pattern for remaining chunks
-            url = self._build_chunk_url(base_url, i, detected_pattern or "{}.ts", key_pair_id, policy, signature)
+            # Use detected format for remaining chunks
+            url = self._build_chunk_url_from_format(base_url, i, format_info, key_pair_id, policy, signature)
             
             try:
                 response = session.get(url, timeout=30)
