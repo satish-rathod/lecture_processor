@@ -30,6 +30,10 @@
         isLiveSession = false;
         capturedUrls.clear();  // Clear captured URLs on navigation
 
+        // CRITICAL: Record timestamp when we reset - used to filter old Performance API entries
+        window._scResetTimestamp = performance.now();
+        console.log('[Scaler Companion] Reset timestamp:', window._scResetTimestamp);
+
         // Notify background worker to clear cached stream info for this tab
         chrome.runtime.sendMessage({
             action: 'pageNavigated'
@@ -179,7 +183,16 @@
         // Use Performance API to get already-loaded resources
         if (window.performance && window.performance.getEntriesByType) {
             const resources = window.performance.getEntriesByType('resource');
+            const resetTimestamp = window._scResetTimestamp || 0;
+
             resources.forEach(resource => {
+                // CRITICAL: Only capture resources loaded AFTER reset
+                // Performance API keeps ALL resources from SPA session
+                // Without this filter, old lecture's URLs would be recaptured
+                if (resource.startTime < resetTimestamp) {
+                    return; // Skip resources from before reset
+                }
+
                 const url = resource.name;
                 if (url.includes('.m3u8')) {
                     captureStreamUrl(url);
