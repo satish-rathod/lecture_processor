@@ -37,21 +37,40 @@
     }
 
     /**
-     * Check if URL has changed (SPA navigation detection)
+     * Extract class ID from URL for comparison
+     * Example: /class/490070/session -> "490070"
+     */
+    function getClassId(url) {
+        const match = url.match(/\/class\/(\d+)/);
+        return match ? match[1] : null;
+    }
+
+    /**
+     * Check if URL has changed to a DIFFERENT lecture (SPA navigation detection)
+     * Only reset stream state when navigating to a different class, not for query param changes
      */
     function checkUrlChange() {
         const currentUrl = window.location.href;
         if (currentUrl !== lastKnownUrl) {
-            console.log('[Scaler Companion] URL changed:', lastKnownUrl, '->', currentUrl);
-            lastKnownUrl = currentUrl;
-            resetStreamState();
+            const oldClassId = getClassId(lastKnownUrl);
+            const newClassId = getClassId(currentUrl);
 
-            // Re-detect lecture after navigation with delay for page load
-            setTimeout(() => {
-                captureExistingRequests();
-                detectLecture();
-                monitorVideoElements();
-            }, 1500);
+            // Only reset if we're navigating to a DIFFERENT lecture
+            if (oldClassId !== newClassId) {
+                console.log('[Scaler Companion] Navigated to different lecture:', oldClassId, '->', newClassId);
+                lastKnownUrl = currentUrl;
+                resetStreamState();
+
+                // Re-detect lecture after navigation with delay for page load
+                setTimeout(() => {
+                    captureExistingRequests();
+                    detectLecture();
+                    monitorVideoElements();
+                }, 1500);
+            } else {
+                // Same lecture, just query param change - update URL but don't reset
+                lastKnownUrl = currentUrl;
+            }
         }
     }
 
@@ -500,7 +519,6 @@
             lecture.streamInfo = capturedStreamInfo;
             lecture.hasLecture = true;
             lecture.recordingAvailable = true;
-            console.log('[Scaler Companion] Stream info available');
         }
 
         // Final fallback: if we're on scaler.com and have class/session in URL
@@ -508,11 +526,23 @@
             (url.includes('/class/') || url.includes('/session'))) {
             lecture.hasLecture = true;
             lecture.title = lecture.title || 'Scaler Class Session';
-            console.log('[Scaler Companion] Fallback detection for class URL');
+        }
+
+        // Only log if something meaningful changed from last detection
+        const hasChanged = !currentLecture ||
+            currentLecture.title !== lecture.title ||
+            currentLecture.duration !== lecture.duration ||
+            (lecture.streamInfo?.baseUrl && !currentLecture.streamInfo?.baseUrl);
+
+        if (hasChanged) {
+            console.log('[Scaler Companion] Detection result:', {
+                title: lecture.title,
+                duration: lecture.duration,
+                hasStream: !!lecture.streamInfo?.baseUrl
+            });
         }
 
         currentLecture = lecture;
-        console.log('[Scaler Companion] Detection result:', lecture);
         return lecture;
     }
 
