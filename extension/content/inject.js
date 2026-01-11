@@ -82,6 +82,27 @@
     }
 
     // ============================================
+    // Page URL Validation
+    // ============================================
+
+    /**
+     * Check if current page is a valid lecture page
+     * Only capture stream URLs on these pages to avoid unnecessary processing
+     */
+    function isLecturePage() {
+        const url = window.location.href;
+
+        // Valid lecture page patterns
+        const lecturePatterns = [
+            /\/class\/\d+\/session/,           // /class/490078/session
+            /\/class\/\d+\/recording/,         // /class/490078/recording
+            /\/mentee-dashboard\/class\/\d+/,  // /mentee-dashboard/class/490078
+        ];
+
+        return lecturePatterns.some(pattern => pattern.test(url));
+    }
+
+    // ============================================
     // Session Type Detection
     // ============================================
 
@@ -121,6 +142,11 @@
     // ============================================
 
     function captureExistingRequests() {
+        // Only capture on valid lecture pages
+        if (!isLecturePage()) {
+            return;
+        }
+
         // Use Performance API to get already-loaded resources
         if (window.performance && window.performance.getEntriesByType) {
             const resources = window.performance.getEntriesByType('resource');

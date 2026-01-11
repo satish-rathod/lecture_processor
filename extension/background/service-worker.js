@@ -115,8 +115,25 @@ async function handleStartDownload(message, sendResponse) {
             throw new Error('Backend server is not running');
         }
 
-        // Get stream info from lecture or captured data
-        const streamInfo = lecture.streamInfo || {};
+        // Get active tab to look up captured stream data
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        const tabId = activeTab?.id;
+
+        // IMPORTANT: Use capturedStreams as source of truth, not popup's stale data!
+        // The popup's currentLecture.streamInfo might be stale if user navigated
+        let streamInfo = {};
+
+        if (tabId && capturedStreams.has(tabId)) {
+            // Use the LATEST captured stream info for this tab
+            streamInfo = capturedStreams.get(tabId);
+            console.log('[Background] Using capturedStreams for tab', tabId, streamInfo);
+        } else if (lecture.streamInfo) {
+            // Fallback to popup's data if no captured stream
+            streamInfo = lecture.streamInfo;
+            console.log('[Background] Using popup streamInfo (no captured stream for tab)', tabId);
+        }
+
+        console.log('[Background] Final streamInfo baseUrl:', streamInfo.baseUrl);
 
         if (!streamInfo.baseUrl && !streamInfo.streamUrl) {
             throw new Error('No stream URL captured. Please play the video first.');
