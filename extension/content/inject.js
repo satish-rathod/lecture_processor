@@ -92,14 +92,9 @@
     function isLecturePage() {
         const url = window.location.href;
 
-        // Valid lecture page patterns
-        const lecturePatterns = [
-            /\/class\/\d+\/session/,           // /class/490078/session
-            /\/class\/\d+\/recording/,         // /class/490078/recording
-            /\/mentee-dashboard\/class\/\d+/,  // /mentee-dashboard/class/490078
-        ];
-
-        return lecturePatterns.some(pattern => pattern.test(url));
+        // Only pages with session?joinSession=1 are actual lecture recordings
+        // Example: https://www.scaler.com/academy/mentee-dashboard/class/490078/session?joinSession=1
+        return /\/class\/\d+\/session\?joinSession=1/.test(url);
     }
 
     // ============================================
