@@ -397,6 +397,20 @@
     // ============================================
 
     function detectLecture() {
+        // Only run detection on actual lecture pages
+        if (!isLecturePage()) {
+            return {
+                hasLecture: false,
+                title: null,
+                duration: null,
+                url: window.location.href,
+                streamInfo: null,
+                isLiveSession: false,
+                recordingAvailable: false,
+                recordingLink: null
+            };
+        }
+
         // Detect session type first
         detectSessionType();
 
@@ -646,8 +660,14 @@
     function init() {
         console.log('[Scaler Companion] Content script loaded');
 
-        // Set up SPA navigation detection FIRST
+        // Set up SPA navigation detection (always needed)
         setupNavigationListeners();
+
+        // Only run detection on lecture pages
+        if (!isLecturePage()) {
+            console.log('[Scaler Companion] Not a lecture page, skipping detection');
+            return;
+        }
 
         // Capture any requests that happened before script loaded
         captureExistingRequests();
@@ -657,6 +677,7 @@
 
         // Wait for dynamic content and try again
         setTimeout(() => {
+            if (!isLecturePage()) return;
             captureExistingRequests();
             detectLecture();
             injectDownloadButton();
@@ -668,8 +689,12 @@
             // Debounce detection
             clearTimeout(window._scCompanionDebounce);
             window._scCompanionDebounce = setTimeout(() => {
-                // Check for URL change first
+                // Check for URL change first (always)
                 checkUrlChange();
+
+                // Only run detection on lecture pages
+                if (!isLecturePage()) return;
+
                 captureExistingRequests();
                 detectLecture();
                 injectDownloadButton();
