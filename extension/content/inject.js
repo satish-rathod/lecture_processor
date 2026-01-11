@@ -252,7 +252,28 @@
         if (capturedUrls.has(url)) return;
         capturedUrls.add(url);
 
-        console.log('[Scaler Companion] Captured stream URL:', url);
+        // Skip master manifest - we want specific quality streams
+        if (url.includes('master.m3u8')) {
+            return;
+        }
+
+        // Prefer higher quality streams (stream_1, stream_2, etc.)
+        // stream_0 is typically lower quality (480p), stream_1+ is higher (720p, 1080p)
+        const streamMatch = url.match(/stream_(\d+)/);
+        const currentQuality = streamMatch ? parseInt(streamMatch[1], 10) : 0;
+
+        // Check if we already have a higher quality stream
+        if (capturedStreamInfo?.streamUrl) {
+            const existingMatch = capturedStreamInfo.streamUrl.match(/stream_(\d+)/);
+            const existingQuality = existingMatch ? parseInt(existingMatch[1], 10) : 0;
+
+            if (existingQuality > currentQuality) {
+                console.log(`[Scaler Companion] Skipping stream_${currentQuality}, already have higher quality stream_${existingQuality}`);
+                return;
+            }
+        }
+
+        console.log(`[Scaler Companion] Captured stream URL (quality: stream_${currentQuality}):`, url);
 
         if (!capturedStreamInfo) {
             capturedStreamInfo = {};
@@ -271,7 +292,21 @@
         if (capturedUrls.has(url)) return;
         capturedUrls.add(url);
 
-        console.log('[Scaler Companion] Captured segment URL:', url);
+        // Prefer higher quality streams - check URL path for stream quality
+        const streamMatch = url.match(/stream_(\d+)/);
+        const currentQuality = streamMatch ? parseInt(streamMatch[1], 10) : 0;
+
+        // Skip lower quality segments if we already have higher quality
+        if (capturedStreamInfo?.baseUrl) {
+            const existingMatch = capturedStreamInfo.baseUrl.match(/stream_(\d+)/);
+            const existingQuality = existingMatch ? parseInt(existingMatch[1], 10) : 0;
+
+            if (existingQuality > currentQuality) {
+                return; // Skip silently - we have better quality
+            }
+        }
+
+        console.log(`[Scaler Companion] Captured segment URL (quality: stream_${currentQuality}):`, url);
 
         try {
             const urlObj = new URL(url);
