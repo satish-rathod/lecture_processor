@@ -76,19 +76,28 @@ function handleStreamCapture(message, sender) {
     }
 
     capturedStreams.get(tabId).streamUrl = message.url;
-    console.log('[Background] Stream captured for tab', tabId);
+    console.log('[Background] Stream captured for tab', tabId, 'URL:', message.url);
 }
 
 function handleAuthCapture(message, sender) {
     const tabId = sender.tab?.id;
     if (!tabId) return;
 
-    if (!capturedStreams.has(tabId)) {
-        capturedStreams.set(tabId, {});
+    // If auth contains a new baseUrl, REPLACE the entire stream data
+    // Don't merge, as old baseUrl would persist from previous lecture
+    if (message.auth && message.auth.baseUrl) {
+        // New stream with baseUrl - replace everything
+        capturedStreams.set(tabId, { ...message.auth });
+        console.log('[Background] Auth captured (replaced) for tab', tabId, 'baseUrl:', message.auth.baseUrl);
+    } else if (!capturedStreams.has(tabId)) {
+        // No existing data, create new
+        capturedStreams.set(tabId, { ...message.auth });
+        console.log('[Background] Auth captured (new) for tab', tabId);
+    } else {
+        // Merge only if no baseUrl in new data
+        Object.assign(capturedStreams.get(tabId), message.auth);
+        console.log('[Background] Auth captured (merged) for tab', tabId);
     }
-
-    Object.assign(capturedStreams.get(tabId), message.auth);
-    console.log('[Background] Auth captured for tab', tabId);
 }
 
 function handlePageNavigated(sender) {
@@ -96,8 +105,12 @@ function handlePageNavigated(sender) {
     if (!tabId) return;
 
     if (capturedStreams.has(tabId)) {
+        const oldData = capturedStreams.get(tabId);
+        console.log('[Background] Clearing stream data on navigation. Old baseUrl:', oldData?.baseUrl);
         capturedStreams.delete(tabId);
         console.log('[Background] Cleared stream data on SPA navigation for tab', tabId);
+    } else {
+        console.log('[Background] No stream data to clear for tab', tabId);
     }
 }
 

@@ -47,25 +47,38 @@
 
     /**
      * Check if URL has changed to a DIFFERENT lecture (SPA navigation detection)
-     * Only reset stream state when navigating to a different class, not for query param changes
+     * Reset stream state when:
+     * 1. Navigating to a different class ID
+     * 2. Navigating TO a lecture page from a non-lecture page
      */
     function checkUrlChange() {
         const currentUrl = window.location.href;
         if (currentUrl !== lastKnownUrl) {
             const oldClassId = getClassId(lastKnownUrl);
             const newClassId = getClassId(currentUrl);
+            const wasLecturePage = /\/class\/\d+\/session\?joinSession=1/.test(lastKnownUrl);
+            const isNowLecturePage = /\/class\/\d+\/session\?joinSession=1/.test(currentUrl);
 
-            // Only reset if we're navigating to a DIFFERENT lecture
-            if (oldClassId !== newClassId) {
-                console.log('[Scaler Companion] Navigated to different lecture:', oldClassId, '->', newClassId);
+            // Reset if:
+            // 1. Different class IDs (navigating between lectures)
+            // 2. Just entered a lecture page (from course list, etc.)
+            const shouldReset =
+                (oldClassId !== newClassId && (oldClassId !== null || newClassId !== null)) ||
+                (!wasLecturePage && isNowLecturePage);
+
+            if (shouldReset) {
+                console.log('[Scaler Companion] Navigating to new/different lecture:', oldClassId, '->', newClassId);
+                console.log('[Scaler Companion] wasLecture:', wasLecturePage, 'isLecture:', isNowLecturePage);
                 lastKnownUrl = currentUrl;
                 resetStreamState();
 
                 // Re-detect lecture after navigation with delay for page load
                 setTimeout(() => {
-                    captureExistingRequests();
-                    detectLecture();
-                    monitorVideoElements();
+                    if (isLecturePage()) {
+                        captureExistingRequests();
+                        detectLecture();
+                        monitorVideoElements();
+                    }
                 }, 1500);
             } else {
                 // Same lecture, just query param change - update URL but don't reset
