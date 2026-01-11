@@ -12,6 +12,7 @@
     let isLiveSession = false;
     let recordingUrl = null;
     let lastKnownUrl = window.location.href;
+    let capturedUrls = new Set();  // Track already-captured URLs to avoid duplicates
 
     // ============================================
     // Navigation State Management (SPA fix)
@@ -27,6 +28,7 @@
         currentLecture = null;
         recordingUrl = null;
         isLiveSession = false;
+        capturedUrls.clear();  // Clear captured URLs on navigation
 
         // Notify background worker to clear cached stream info for this tab
         chrome.runtime.sendMessage({
@@ -207,6 +209,10 @@
     };
 
     function captureRecordingUrl(url) {
+        // Skip if already captured this URL
+        if (capturedUrls.has(url)) return;
+        capturedUrls.add(url);
+
         console.log('[Scaler Companion] Captured recording URL:', url);
         recordingUrl = url;
 
@@ -242,6 +248,10 @@
     }
 
     function captureStreamUrl(url) {
+        // Skip if already captured this URL
+        if (capturedUrls.has(url)) return;
+        capturedUrls.add(url);
+
         console.log('[Scaler Companion] Captured stream URL:', url);
 
         if (!capturedStreamInfo) {
@@ -257,6 +267,10 @@
     }
 
     function captureSegmentUrl(url) {
+        // Skip if already captured this URL
+        if (capturedUrls.has(url)) return;
+        capturedUrls.add(url);
+
         console.log('[Scaler Companion] Captured segment URL:', url);
 
         try {
