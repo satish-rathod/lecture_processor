@@ -251,10 +251,30 @@ async function handleDownload() {
     updateStatus('Downloading...', 'processing');
 
     try {
-        // Build download request with dev mode settings
+        // CRITICAL: Fetch FRESH streamInfo from content script before downloading
+        // The currentLecture.streamInfo might be stale if set when popup opened
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        let freshStreamInfo = currentLecture.streamInfo;
+
+        try {
+            const freshLecture = await chrome.tabs.sendMessage(tab.id, { action: 'getLectureInfo' });
+            if (freshLecture && freshLecture.streamInfo) {
+                freshStreamInfo = freshLecture.streamInfo;
+                console.log('[Popup] Using FRESH streamInfo:', freshStreamInfo?.baseUrl);
+            } else {
+                console.log('[Popup] No fresh streamInfo, using cached');
+            }
+        } catch (e) {
+            console.log('[Popup] Could not get fresh streamInfo, using cached:', e.message);
+        }
+
+        // Build download request with FRESH stream info
         const downloadRequest = {
             action: 'startDownload',
-            lecture: currentLecture,
+            lecture: {
+                ...currentLecture,
+                streamInfo: freshStreamInfo  // Use FRESH data!
+            },
             devMode: devModeEnabled
         };
 
@@ -263,6 +283,8 @@ async function handleDownload() {
             downloadRequest.startTime = parseTimeToSeconds(elements.startTimeInput.value);
             downloadRequest.endTime = parseTimeToSeconds(elements.endTimeInput.value);
         }
+
+        console.log('[Popup] Sending download request with baseUrl:', freshStreamInfo?.baseUrl);
 
         // Send download request to background worker
         const response = await chrome.runtime.sendMessage(downloadRequest);

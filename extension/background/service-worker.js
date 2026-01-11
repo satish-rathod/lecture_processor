@@ -162,7 +162,9 @@ async function handleStartDownload(message, sendResponse) {
             endTime: endTime || null
         };
 
-        console.log('[Background] Download request:', { devMode, startTime, endTime });
+        console.log('[Background] Download request for:', lecture.title);
+        console.log('[Background] baseUrl:', streamInfo.baseUrl);
+        console.log('[Background] devMode:', devMode, 'startTime:', startTime, 'endTime:', endTime);
 
         // Send download request to backend
         const response = await fetch(API_ENDPOINTS.download, {
