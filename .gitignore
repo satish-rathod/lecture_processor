@@ -10,7 +10,18 @@ venv/
 
 # Video Processing Outputs
 scaler_videos/
+output/
 *.mp4
 *.ts
 *.mkv
+*.wav
 concat.txt
+
+# Large model files
+*.pt
+*.bin
+*.onnx
+
+# IDE
+.vscode/
+.idea/

@@ -5,10 +5,10 @@
 ## Features
 
 - **📥 One-Click Download** - Download recorded lectures directly from Scaler Academy
-- **🎤 Audio Transcription** - Transcribe lectures using local Whisper model
-- **📝 AI Notes Generation** - Generate detailed Markdown notes with GPT-OSS 20B
-- **📢 Announcement Extraction** - Automatically extract deadlines and announcements
-- **⏩ Smart Filtering** - Skip blank screens, attendance, and irrelevant parts
+- **🎤 Audio Transcription** - Transcribe lectures using local Whisper model (via HuggingFace)
+- **🖼️ Slide Extraction** - Extract key frames/slides based on scene changes
+- **📝 AI Notes Generation** - Generate detailed Markdown notes with Ollama (any model)
+- **📚 Obsidian-Ready** - Output in per-recording folders with linked media
 
 ## Project Structure
 
@@ -24,13 +24,21 @@ lecture_processor/
 ├── backend/                 # Python Backend
 │   ├── server.py           # FastAPI server
 │   ├── downloader.py       # Video download module
+│   ├── transcriber.py      # Whisper transcription
+│   ├── frame_extractor.py  # Slide/frame extraction
+│   ├── notes_generator.py  # Ollama LLM notes
+│   ├── pipeline.py         # Processing orchestrator
 │   └── requirements.txt    # Python dependencies
 │
 ├── output/                  # Generated outputs
-│   ├── videos/             # Downloaded lectures
-│   ├── transcripts/        # Audio transcripts
-│   ├── notes/              # Generated notes
-│   └── announcements/      # Extracted announcements
+│   └── YYYY-MM-DD_Title/   # Per-recording folders
+│       ├── video.mp4
+│       ├── transcript.md
+│       ├── lecture_notes.md
+│       ├── qa_cards.md
+│       ├── summary.md
+│       ├── slides/
+│       └── index.md        # Obsidian index
 │
 └── main.py                  # Legacy standalone downloader
 ```
@@ -45,14 +53,21 @@ pip install -r requirements.txt
 python server.py
 ```
 
-### 2. Load Chrome Extension
+### 2. Install Ollama (for notes generation)
+
+```bash
+brew install ollama
+ollama pull gpt-oss:20b  # Or any model you prefer
+```
+
+### 3. Load Chrome Extension
 
 1. Open Chrome and go to `chrome://extensions/`
 2. Enable "Developer mode" (top right)
 3. Click "Load unpacked"
 4. Select the `extension/` folder
 
-### 3. Use the Extension
+### 4. Use the Extension
 
 1. Navigate to a Scaler Academy lecture
 2. Click the Scaler Companion extension icon
@@ -64,32 +79,31 @@ python server.py
 - **Python 3.10+**
 - **FFmpeg** - For video processing (`brew install ffmpeg`)
 - **Chrome Browser** - For the extension
-
-### For AI Processing (Phase 2+)
-
 - **Ollama** - For local LLM inference
-- **GPU (optional)** - For faster transcription
+- **24GB+ RAM recommended** - For Whisper + LLM
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/api/download` | POST | Start lecture download |
+| `/api/status/{id}` | GET | Get download status |
+| `/api/process` | POST | Start AI processing |
+| `/api/process/{id}` | GET | Get processing status |
+| `/api/models` | GET | List available Ollama models |
 
 ## Development Status
 
 | Phase | Feature | Status |
 |-------|---------|--------|
-| 1 | Chrome Extension Skeleton | ✅ Complete |
+| 1 | Chrome Extension | ✅ Complete |
 | 1 | Backend API | ✅ Complete |
-| 2 | Audio Transcription | 🔜 Planned |
-| 3 | Video Analysis | 🔜 Planned |
-| 4 | LLM Notes Generation | 🔜 Planned |
-| 5 | Polish & UX | 🔜 Planned |
-
-## Legacy Downloader
-
-The original standalone video downloader is still available:
-
-```bash
-python main.py
-```
-
-Configure the video URL and CloudFront credentials in the `main()` function.
+| 2 | Audio Transcription (Whisper) | ✅ Complete |
+| 2 | Frame/Slide Extraction | ✅ Complete |
+| 2 | LLM Notes Generation | ✅ Complete |
+| 2 | Obsidian Integration | ✅ Complete |
+| 3 | Polish & UX | 🔜 Planned |
 
 ## License
 

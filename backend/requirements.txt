@@ -1,13 +1,22 @@
 # Scaler Companion Backend Dependencies
+
+# Core API
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 pydantic>=2.5.0
 requests>=2.31.0
 
-# AI Processing (Phase 2+)
-# whisper-cpp-python>=0.1.0
-# openai-whisper>=20231117
-# ollama>=0.1.0
-# opencv-python>=4.8.0
-# pytesseract>=0.3.10
-# scikit-image>=0.22.0
+# Phase 2: AI Processing
+# Whisper transcription (official openai-whisper)
+openai-whisper>=20231117
+librosa>=0.10.0
+
+# LLM via Ollama
+ollama>=0.1.0
+
+# Frame extraction
+pillow>=10.0.0
+imagehash>=4.3.0
+
+# Slide analysis - OCR
+easyocr>=1.7.0

@@ -21,6 +21,7 @@ from pydantic import BaseModel
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from downloader import VideoDownloader
+from pipeline import ProcessingPipeline
 
 # ============================================
 # Configuration
@@ -52,7 +53,21 @@ class DownloadRequest(BaseModel):
 class ProcessRequest(BaseModel):
     title: str
     videoPath: str
-    options: dict
+    options: dict = {}
+    whisperModel: str = "medium"
+    ollamaModel: str = "gpt-oss:20b"
+    skipTranscription: bool = False
+    skipFrames: bool = False
+    skipNotes: bool = False
+
+class ProcessStatus(BaseModel):
+    processId: str
+    status: str  # 'pending', 'processing', 'complete', 'error'
+    progress: float
+    stage: Optional[str] = None
+    message: Optional[str] = None
+    outputDir: Optional[str] = None
+    error: Optional[str] = None
 
 class DownloadStatus(BaseModel):
     downloadId: str
@@ -162,12 +177,12 @@ async def start_processing(request: ProcessRequest, background_tasks: Background
     if not video_path.exists():
         raise HTTPException(status_code=400, detail="Video file not found")
     
-    processes[process_id] = {
-        "status": "pending",
-        "progress": 0,
-        "title": request.title,
-        "options": request.options
-    }
+    processes[process_id] = ProcessStatus(
+        processId=process_id,
+        status="pending",
+        progress=0.0,
+        message="Starting processing..."
+    )
     
     # Start processing in background
     background_tasks.add_task(
@@ -188,6 +203,17 @@ async def get_process_status(process_id: str):
         raise HTTPException(status_code=404, detail="Process not found")
     
     return processes[process_id]
+
+@app.get("/api/models")
+async def list_ollama_models():
+    """List available Ollama models"""
+    try:
+        from notes_generator import NotesGenerator
+        generator = NotesGenerator()
+        models = generator.list_available_models()
+        return {"models": models}
+    except Exception as e:
+        return {"models": [], "error": str(e)}
 
 # ============================================
 # Background Tasks
@@ -308,45 +334,65 @@ async def run_download(download_id: str, request: DownloadRequest):
         downloads[download_id].message = f"Download failed: {e}"
 
 async def run_processing(process_id: str, request: ProcessRequest):
-    """Run AI processing in background"""
+    """Run AI processing using the full pipeline"""
+    import concurrent.futures
+    
     try:
-        processes[process_id]["status"] = "processing"
+        processes[process_id].status = "processing"
+        processes[process_id].message = "Initializing pipeline..."
         
-        options = request.options
-        steps = []
+        # Create pipeline with user's model preferences
+        pipeline = ProcessingPipeline(
+            output_base=str(OUTPUT_DIR),
+            whisper_model=request.whisperModel,
+            ollama_model=request.ollamaModel
+        )
         
-        if options.get("transcribe"):
-            steps.append(("transcribe", "Transcribing audio..."))
-        if options.get("notes"):
-            steps.append(("notes", "Generating notes with AI..."))
-        if options.get("announcements"):
-            steps.append(("announcements", "Extracting announcements..."))
-        if options.get("filter"):
-            steps.append(("filter", "Filtering irrelevant content..."))
+        # Progress callback
+        def progress_callback(stage: str, current: int, total: int, message: str):
+            progress_map = {
+                "transcription": (0, 40),
+                "frames": (40, 70),
+                "notes": (70, 100)
+            }
+            base, max_prog = progress_map.get(stage, (0, 100))
+            stage_progress = (current / total) * (max_prog - base) if total > 0 else 0
+            processes[process_id].progress = base + stage_progress
+            processes[process_id].stage = stage
+            processes[process_id].message = message
+            print(f"[Process {process_id}] {stage}: {message}")
         
-        total_steps = len(steps)
+        pipeline.set_progress_callback(progress_callback)
         
-        for i, (step_id, message) in enumerate(steps):
-            processes[process_id]["currentStep"] = step_id
-            processes[process_id]["message"] = message
-            processes[process_id]["progress"] = int((i / total_steps) * 100)
-            
-            # TODO: Call actual processing functions
-            await asyncio.sleep(2)  # Placeholder
+        # Run processing in thread pool (heavy CPU/GPU work)
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            results = await loop.run_in_executor(
+                pool,
+                lambda: pipeline.process(
+                    video_path=request.videoPath,
+                    title=request.title,
+                    skip_transcription=request.skipTranscription,
+                    skip_frames=request.skipFrames,
+                    skip_notes=request.skipNotes
+                )
+            )
         
         # Complete
-        processes[process_id]["status"] = "complete"
-        processes[process_id]["progress"] = 100
-        processes[process_id]["message"] = "Processing complete"
-        processes[process_id]["results"] = {
-            "transcriptPath": str(OUTPUT_DIR / "transcripts" / f"{process_id}.txt"),
-            "notesPath": str(OUTPUT_DIR / "notes" / f"{process_id}.md"),
-            "announcementsPath": str(OUTPUT_DIR / "announcements" / f"{process_id}.json")
-        }
+        processes[process_id].status = "complete"
+        processes[process_id].progress = 100
+        processes[process_id].message = "Processing complete!"
+        processes[process_id].outputDir = results.get("output_dir")
+        
+        print(f"[Process {process_id}] Complete! Output: {results.get('output_dir')}")
         
     except Exception as e:
-        processes[process_id]["status"] = "error"
-        processes[process_id]["error"] = str(e)
+        print(f"[Process {process_id}] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        processes[process_id].status = "error"
+        processes[process_id].error = str(e)
+        processes[process_id].message = f"Processing failed: {e}"
 
 # ============================================
 # Run Server
