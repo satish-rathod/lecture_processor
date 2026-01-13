@@ -7,12 +7,13 @@ FastAPI server for handling downloads and AI processing
 import os
 import uuid
 import asyncio
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -46,7 +47,7 @@ class DownloadRequest(BaseModel):
     title: str
     url: str
     streamInfo: StreamInfo
-    devMode: bool = False
+    # devMode removed - time controls are now standard
     startTime: Optional[int] = None  # Start time in seconds
     endTime: Optional[int] = None    # End time in seconds
 
@@ -59,6 +60,7 @@ class ProcessRequest(BaseModel):
     skipTranscription: bool = False
     skipFrames: bool = False
     skipNotes: bool = False
+    skipSlideAnalysis: bool = False
 
 class ProcessStatus(BaseModel):
     processId: str
@@ -118,6 +120,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Serve static files (artifacts)
+from fastapi.staticfiles import StaticFiles
+app.mount("/content", StaticFiles(directory=str(OUTPUT_DIR)), name="content")
+
 # ============================================
 # Routes
 # ============================================
@@ -137,7 +143,7 @@ async def start_download(request: DownloadRequest, background_tasks: BackgroundT
     download_id = str(uuid.uuid4())
     
     # Debug: Log the incoming request parameters
-    print(f"[API] Download request received - devMode: {request.devMode}, startTime: {request.startTime}, endTime: {request.endTime}")
+    print(f"[API] Download request received - startTime: {request.startTime}, endTime: {request.endTime}")
     
     # Create download status
     downloads[download_id] = DownloadStatus(
@@ -215,6 +221,171 @@ async def list_ollama_models():
     except Exception as e:
         return {"models": [], "error": str(e)}
 
+@app.get("/api/recordings")
+async def list_recordings():
+    """List all recordings (downloaded & processed) - merged into single cards"""
+    recordings = {}
+    
+    # Helper to normalize title for matching
+    def normalize_title(title: str) -> str:
+        import re
+        # Replace underscores and dashes with spaces, collapse multiple spaces, lowercase
+        normalized = title.lower().replace("_", " ").replace("-", " ")
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        return normalized
+    
+    # 1. First, scan for processed outputs (these are the "complete" records)
+    for output_folder in OUTPUT_DIR.iterdir():
+        if output_folder.is_dir() and output_folder.name != "videos":
+            # Format: YYYY-MM-DD_Title
+            folder_name = output_folder.name
+            parts = folder_name.split("_", 1)
+            
+            if len(parts) < 2:
+                continue
+                
+            date_str, safe_title = parts[0], parts[1]
+            display_title = safe_title.replace("_", " ")
+            normalized = normalize_title(safe_title)
+            
+            is_processed = (output_folder / "lecture_notes.md").exists()
+            is_processing = (output_folder / "transcript.txt").exists() and not is_processed
+            
+            status = "processed" if is_processed else ("processing" if is_processing else "pending")
+            
+            # Find matching video in videos folder
+            video_path = None
+            videos_dir = OUTPUT_DIR / "videos"
+            if videos_dir.exists():
+                for video_folder in videos_dir.iterdir():
+                    if video_folder.is_dir():
+                        if normalize_title(video_folder.name) == normalized or \
+                           normalized in normalize_title(video_folder.name) or \
+                           normalize_title(video_folder.name) in normalized:
+                            video_file = video_folder / "full_video.mp4"
+                            if video_file.exists():
+                                video_path = str(video_file)
+                                break
+            
+            recordings[normalized] = {
+                "id": folder_name,
+                "title": display_title,
+                "status": status,
+                "date": date_str,
+                "path": str(output_folder),
+                "videoPath": video_path,
+                "processed": is_processed,
+                "artifacts": {
+                    "notes": f"/content/{folder_name}/lecture_notes.md" if (output_folder / "lecture_notes.md").exists() else None,
+                    "summary": f"/content/{folder_name}/summary.md" if (output_folder / "summary.md").exists() else None,
+                    "announcements": f"/content/{folder_name}/announcements.md" if (output_folder / "announcements.md").exists() else None,
+                    "slides": f"/content/{folder_name}/slides/" if (output_folder / "slides").exists() else None,
+                    "transcript": f"/content/{folder_name}/transcript.txt" if (output_folder / "transcript.txt").exists() else None,
+                }
+            }
+    
+    # 2. Add downloaded videos that DON'T have processed output yet
+    videos_dir = OUTPUT_DIR / "videos"
+    if videos_dir.exists():
+        for video_folder in videos_dir.iterdir():
+            if video_folder.is_dir():
+                title = video_folder.name
+                normalized = normalize_title(title)
+                
+                # Skip if we already have this from processed outputs
+                if normalized in recordings:
+                    continue
+                
+                video_file = video_folder / "full_video.mp4"
+                if video_file.exists():
+                    recordings[normalized] = {
+                        "id": title,
+                        "title": title,
+                        "status": "downloaded",
+                        "date": datetime.fromtimestamp(video_file.stat().st_mtime).strftime("%Y-%m-%d"),
+                        "downloadDate": datetime.fromtimestamp(video_file.stat().st_mtime).isoformat(),
+                        "videoPath": str(video_file),
+                        "processed": False,
+                        "artifacts": None
+                    }
+    
+    # Sort by date descending
+    sorted_recordings = sorted(
+        recordings.values(), 
+        key=lambda x: x.get("date", ""), 
+        reverse=True
+    )
+    
+    return {"recordings": sorted_recordings}
+
+@app.get("/api/recordings/check")
+async def check_recording(title: str = Query(..., description="Recording title to check")):
+    """Check if a recording with this title exists"""
+    title_lower = title.lower()
+    
+    # Check in videos folder (downloaded)
+    videos_dir = OUTPUT_DIR / "videos"
+    if videos_dir.exists():
+        for folder in videos_dir.iterdir():
+            if folder.is_dir() and title_lower in folder.name.lower():
+                return {"exists": True, "status": "downloaded", "path": str(folder)}
+    
+    # Check in processed folders
+    for folder in OUTPUT_DIR.iterdir():
+        if folder.is_dir() and folder.name != "videos":
+            if title_lower in folder.name.lower():
+                is_processed = (folder / "lecture_notes.md").exists()
+                return {
+                    "exists": True, 
+                    "status": "processed" if is_processed else "processing",
+                    "path": str(folder)
+                }
+    
+    return {"exists": False, "status": None, "path": None}
+
+@app.delete("/api/recordings/{recording_id}")
+async def delete_recording(recording_id: str):
+    """Delete a recording and all its artifacts"""
+    deleted = []
+    errors = []
+    
+    # Try to delete from videos folder
+    videos_path = OUTPUT_DIR / "videos" / recording_id
+    if videos_path.exists():
+        try:
+            shutil.rmtree(videos_path)
+            deleted.append(str(videos_path))
+        except Exception as e:
+            errors.append(f"Failed to delete {videos_path}: {e}")
+    
+    # Try to delete processed folder (recording_id might be the full folder name like "2024-01-15_Title")
+    processed_path = OUTPUT_DIR / recording_id
+    if processed_path.exists() and processed_path.is_dir():
+        try:
+            shutil.rmtree(processed_path)
+            deleted.append(str(processed_path))
+        except Exception as e:
+            errors.append(f"Failed to delete {processed_path}: {e}")
+    
+    # Also check for partial title matches in processed folders
+    for folder in OUTPUT_DIR.iterdir():
+        if folder.is_dir() and folder.name != "videos":
+            if recording_id.lower() in folder.name.lower():
+                try:
+                    shutil.rmtree(folder)
+                    deleted.append(str(folder))
+                except Exception as e:
+                    errors.append(f"Failed to delete {folder}: {e}")
+    
+    if not deleted and not errors:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    
+    return {
+        "success": len(errors) == 0,
+        "deleted": deleted,
+        "errors": errors
+    }
+
 # ============================================
 # Background Tasks
 # ============================================
@@ -259,28 +430,35 @@ async def run_download(download_id: str, request: DownloadRequest):
         downloader.set_progress_callback(progress_callback)
         
         # Calculate chunk range based on dev mode settings
-        # HLS chunks are typically ~10 seconds each
-        CHUNK_DURATION = 10  # seconds per chunk
+        # HLS chunks are typically ~10 seconds each, but user observed ~16s
+        CHUNK_DURATION = 16  # seconds per chunk
         
-        if request.devMode:
-            # Developer mode: use specified times or defaults
+        if request.startTime is not None or request.endTime is not None:
+            # Custom range mode
             start_time = request.startTime or 0
-            end_time = request.endTime or 600  # Default 10 minutes in dev mode
+            # If no end time, use a safe default or try to detect duration
+            # For now, if no end time, we'll download a significant chunk (e.g. 2 hours)
+            # or rely on detectedChunk if available? 
+            # Better: if endTime is None, go until detectedChunk or 1000 chunks
             
-            start_chunk = start_time // CHUNK_DURATION
-            end_chunk = end_time // CHUNK_DURATION
+            end_time = request.endTime or 7200 # Default to 2 hours if not specified but start time IS specified?
+            # Actually, standard behavior: if endTime is 0/None, we want FULL lecture.
+            # But here we are in the "custom range" block.
             
-            # Limit to 20 chunks in dev mode
-            if end_chunk - start_chunk > 20:
-                end_chunk = start_chunk + 20
-                print(f"[Download {download_id}] DEV MODE: Limiting to 20 chunks")
+            start_chunk = int(start_time / CHUNK_DURATION) 
             
-            print(f"[Download {download_id}] DEV MODE: chunks {start_chunk}-{end_chunk} (times {start_time}s-{end_time}s)")
+            if request.endTime:
+                end_chunk = int(request.endTime / CHUNK_DURATION)
+            else:
+                 # No end time specified -> Download to end
+                 end_chunk = stream_info.detectedChunk + 100 if stream_info.detectedChunk else 1000
+            
+            print(f"[Download {download_id}] Custom range: chunks {start_chunk}-{end_chunk} (times {start_time}s-{end_time if request.endTime else 'END'})")
         else:
-            # Normal mode: full lecture
+            # Full lecture mode (no start/end time specified)
             start_chunk = 0
-            end_chunk = stream_info.detectedChunk + 100 if stream_info.detectedChunk else 500
-            print(f"[Download {download_id}] Normal mode: chunks {start_chunk}-{end_chunk}")
+            end_chunk = stream_info.detectedChunk + 100 if stream_info.detectedChunk else 1000
+            print(f"[Download {download_id}] Full lecture mode: chunks {start_chunk}-{end_chunk}")
         
         # Run the synchronous download in a thread pool to not block the event loop
         loop = asyncio.get_event_loop()
@@ -308,7 +486,7 @@ async def run_download(download_id: str, request: DownloadRequest):
             # Step 2: Merge chunks
             full_video_path = await loop.run_in_executor(
                 pool,
-                downloader.merge_chunks_to_video
+                lambda: downloader.merge_chunks_to_video(start_chunk, end_chunk)
             )
             
             if not full_video_path:
@@ -374,7 +552,8 @@ async def run_processing(process_id: str, request: ProcessRequest):
                     title=request.title,
                     skip_transcription=request.skipTranscription,
                     skip_frames=request.skipFrames,
-                    skip_notes=request.skipNotes
+                    skip_notes=request.skipNotes,
+                    skip_slide_analysis=request.skipSlideAnalysis
                 )
             )
         

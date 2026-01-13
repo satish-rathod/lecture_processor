@@ -1,82 +1,138 @@
 /**
- * Scaler Companion - Popup Script
- * Handles UI interactions and communication with background worker
+ * Lecture Companion - Popup Script
+ * Handles UI interactions, persistent progress, and backend communication
  */
 
+// ============================================
 // Constants
+// ============================================
 const BACKEND_URL = 'http://localhost:8000';
+const DASHBOARD_URL = 'http://localhost:5173';
 const API_ENDPOINTS = {
     health: `${BACKEND_URL}/health`,
     download: `${BACKEND_URL}/api/download`,
-    process: `${BACKEND_URL}/api/process`,
     status: `${BACKEND_URL}/api/status`,
+    recordings: `${BACKEND_URL}/api/recordings`,
+    checkRecording: `${BACKEND_URL}/api/recordings/check`,
 };
 
+// ============================================
 // DOM Elements
+// ============================================
 const elements = {
-    statusIndicator: document.getElementById('statusIndicator'),
-    statusDot: document.querySelector('.status-dot'),
-    statusText: document.querySelector('.status-text'),
-    detectionSection: document.getElementById('detectionSection'),
+    // Banner
+    offlineBanner: document.getElementById('offlineBanner'),
+
+    // Header
+    statusDot: document.getElementById('statusDot'),
+
+    // States
+    emptyState: document.getElementById('emptyState'),
+    lectureSection: document.getElementById('lectureSection'),
+
+    // Lecture Card
     lectureTitle: document.getElementById('lectureTitle'),
-    lectureInfo: document.getElementById('lectureInfo'),
-    controlsSection: document.getElementById('controlsSection'),
+    lectureMeta: document.getElementById('lectureMeta'),
+    downloadedBadge: document.getElementById('downloadedBadge'),
+
+    // Inputs
+    timeInputs: document.getElementById('timeInputs'),
+    startTime: document.getElementById('startTime'),
+    endTime: document.getElementById('endTime'),
+
+    // Actions
     downloadBtn: document.getElementById('downloadBtn'),
-    progressContainer: document.getElementById('progressContainer'),
+    dashboardBtn: document.getElementById('dashboardBtn'),
+
+    // Progress
+    progressSection: document.getElementById('progressSection'),
+    progressStage: document.getElementById('progressStage'),
+    progressPercent: document.getElementById('progressPercent'),
     progressFill: document.getElementById('progressFill'),
-    progressText: document.getElementById('progressText'),
-    processingSection: document.getElementById('processingSection'),
-    processBtn: document.getElementById('processBtn'),
-    recentSection: document.getElementById('recentSection'),
-    recentList: document.getElementById('recentList'),
-    backendStatus: document.getElementById('backendStatus'),
-    settingsBtn: document.getElementById('settingsBtn'),
-    // Developer Mode
-    devModeToggle: document.getElementById('devModeToggle'),
-    devModeBadge: document.getElementById('devModeBadge'),
-    devModeOptions: document.getElementById('devModeOptions'),
-    startTimeInput: document.getElementById('startTime'),
-    endTimeInput: document.getElementById('endTime'),
+    progressMessage: document.getElementById('progressMessage'),
+
+    // Post Download
+    postDownload: document.getElementById('postDownload'),
 };
 
+// ============================================
 // State
+// ============================================
 let currentLecture = null;
-let isDownloading = false;
-let isProcessing = false;
-let devModeEnabled = false;
+let isBackendOnline = false;
+let pollInterval = null;
 
 // ============================================
 // Initialization
 // ============================================
-
 document.addEventListener('DOMContentLoaded', async () => {
     await init();
 });
 
 async function init() {
-    // Check backend status
-    await checkBackendHealth();
-
-    // Check current tab for lectures
-    await detectLecture();
-
-    // Load recent downloads
-    await loadRecentDownloads();
-
-    // Load developer mode settings
-    await loadDevModeSettings();
+    console.log('[Popup] Initializing...');
 
     // Setup event listeners
     setupEventListeners();
 
-    // Start periodic health check
-    setInterval(checkBackendHealth, 30000);
+    // Check for active jobs FIRST (persistent progress)
+    await checkActiveJobs();
+
+    // Check backend health
+    await checkBackendHealth();
+
+    // Detect lecture on current page
+    await detectLecture();
+}
+
+function setupEventListeners() {
+    elements.downloadBtn.addEventListener('click', handleDownload);
+    elements.dashboardBtn.addEventListener('click', openDashboard);
 }
 
 // ============================================
-// Backend Communication
+// Persistent Progress - Check Active Jobs
 // ============================================
+async function checkActiveJobs() {
+    try {
+        const response = await chrome.runtime.sendMessage({ action: 'getActiveJobs' });
+        console.log('[Popup] Active jobs:', response);
 
+        if (response && response.download) {
+            // There's an active download - show progress
+            showActiveDownload(response.download);
+        }
+    } catch (error) {
+        console.log('[Popup] No active jobs or error:', error.message);
+    }
+}
+
+function showActiveDownload(downloadJob) {
+    console.log('[Popup] Showing active download:', downloadJob);
+
+    // Show lecture section if hidden
+    elements.emptyState.style.display = 'none';
+    elements.lectureSection.style.display = 'flex';
+
+    // Set title
+    elements.lectureTitle.textContent = downloadJob.title || 'Downloading...';
+    elements.lectureMeta.textContent = 'Download in progress';
+
+    // Hide inputs and download button
+    elements.timeInputs.style.display = 'none';
+    elements.downloadBtn.style.display = 'none';
+
+    // Show progress
+    elements.progressSection.style.display = 'block';
+    updateProgressUI(downloadJob.progress || 0, downloadJob.message || 'Downloading...');
+
+    // Start polling for updates
+    startProgressPolling(downloadJob.id);
+}
+
+// ============================================
+// Backend Health Check
+// ============================================
 async function checkBackendHealth() {
     try {
         const response = await fetch(API_ENDPOINTS.health, {
@@ -85,36 +141,36 @@ async function checkBackendHealth() {
         });
 
         if (response.ok) {
-            updateBackendStatus(true);
+            setBackendOnline(true);
             return true;
         }
     } catch (error) {
-        console.error('Backend health check failed:', error);
+        console.log('[Popup] Backend health check failed:', error.message);
     }
 
-    updateBackendStatus(false);
+    setBackendOnline(false);
     return false;
 }
 
-function updateBackendStatus(isOnline) {
-    const dot = elements.backendStatus.querySelector('.status-dot');
+function setBackendOnline(isOnline) {
+    isBackendOnline = isOnline;
 
     if (isOnline) {
-        dot.classList.remove('offline');
-        elements.backendStatus.title = 'Backend is running';
+        elements.offlineBanner.classList.remove('visible');
+        elements.statusDot.classList.remove('offline');
+        elements.downloadBtn.disabled = false;
     } else {
-        dot.classList.add('offline');
-        elements.backendStatus.title = 'Backend is offline. Start the server with: python -m backend.server';
+        elements.offlineBanner.classList.add('visible');
+        elements.statusDot.classList.add('offline');
+        elements.downloadBtn.disabled = true;
     }
 }
 
 // ============================================
 // Lecture Detection
 // ============================================
-
 async function detectLecture() {
     try {
-        // Get current active tab
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
         if (!tab || !tab.url) {
@@ -122,30 +178,27 @@ async function detectLecture() {
             return;
         }
 
-        // Check if we're on Scaler
+        // Check if on Scaler
         if (!tab.url.includes('scaler.com')) {
             showNoLecture('Not on Scaler Academy');
             return;
         }
 
-        // Send message to content script to get lecture info
+        // Get lecture info from content script
         try {
             const response = await chrome.tabs.sendMessage(tab.id, { action: 'getLectureInfo' });
 
             if (response && response.hasLecture) {
-                showLecture(response);
+                await showLecture(response);
             } else {
-                // Content script responded but no lecture detected
-                // Try fallback URL-based detection
                 fallbackDetection(tab);
             }
         } catch (error) {
-            // Content script not loaded yet, use fallback
-            console.log('Content script not responding, using fallback detection');
+            console.log('[Popup] Content script not responding, using fallback');
             fallbackDetection(tab);
         }
     } catch (error) {
-        console.error('Error detecting lecture:', error);
+        console.error('[Popup] Error detecting lecture:', error);
         showNoLecture();
     }
 }
@@ -154,13 +207,11 @@ function fallbackDetection(tab) {
     const url = tab.url;
     const title = tab.title || '';
 
-    // Check URL patterns
     const isClassPage = /\/class\/\d+/.test(url);
     const isSessionPage = url.includes('/session');
     const isRecordingPage = url.includes('/recording');
 
     if (isClassPage || isSessionPage || isRecordingPage) {
-        // Extract title from page title
         let lectureTitle = 'Scaler Class';
         const titleMatch = title.match(/^(?:Lecture\s*\|\s*)?([^|\-]+)/);
         if (titleMatch && !titleMatch[1].toLowerCase().includes('scaler')) {
@@ -174,398 +225,234 @@ function fallbackDetection(tab) {
             streamInfo: null,
             fallbackMode: true
         });
-
-        updateStatus('Manual Capture Mode', 'ready');
     } else {
-        showNoLecture('Navigate to a class or recording page');
+        showNoLecture('Navigate to a recording page');
     }
 }
 
 function showNoLecture(message = 'No Lecture Detected') {
     currentLecture = null;
-    elements.lectureTitle.textContent = message;
-    elements.lectureInfo.textContent = 'Navigate to a Scaler lecture page';
-    elements.controlsSection.style.display = 'none';
-    elements.processingSection.style.display = 'none';
+    elements.emptyState.style.display = 'block';
+    elements.lectureSection.style.display = 'none';
 
-    updateStatus('Ready', 'ready');
+    // Update empty state message if provided
+    const h3 = elements.emptyState.querySelector('h3');
+    if (h3) h3.textContent = message;
 }
 
-function showLecture(lectureInfo) {
+async function showLecture(lectureInfo) {
     currentLecture = lectureInfo;
+
+    elements.emptyState.style.display = 'none';
+    elements.lectureSection.style.display = 'flex';
+
     elements.lectureTitle.textContent = lectureInfo.title || 'Lecture Found';
 
-    // Handle live sessions differently
-    if (lectureInfo.isLiveSession && !lectureInfo.streamInfo?.baseUrl) {
-        elements.lectureInfo.textContent = '🔴 Live Session - Recording available after class';
-        elements.controlsSection.style.display = 'block';
-        elements.downloadBtn.innerHTML = '<span class="btn-icon">⏳</span>Recording Not Ready';
-        elements.downloadBtn.disabled = true;
-        elements.downloadBtn.title = 'This is a live session. Download the recording after class ends.';
-        updateStatus('Live Session', 'processing');
-    } else if (lectureInfo.streamInfo?.baseUrl) {
-        // Stream URL captured - ready to download
-        elements.lectureInfo.textContent = lectureInfo.duration
-            ? `Duration: ${formatDuration(lectureInfo.duration)}`
-            : '✅ Stream captured - Ready to download';
-        elements.controlsSection.style.display = 'block';
-        elements.downloadBtn.innerHTML = '<span class="btn-icon">⬇️</span>Download Lecture';
-        elements.downloadBtn.disabled = false;
-        updateStatus('Ready to Download', 'ready');
+    // Update meta based on stream status
+    if (lectureInfo.streamInfo?.baseUrl) {
+        elements.lectureMeta.textContent = '✓ Stream captured - Ready to download';
+        elements.downloadBtn.disabled = !isBackendOnline;
     } else {
-        // Lecture detected but no stream yet
-        elements.lectureInfo.textContent = '⏳ Play the video to capture stream...';
-        elements.controlsSection.style.display = 'block';
-        elements.downloadBtn.innerHTML = '<span class="btn-icon">⬇️</span>Download Lecture';
-        elements.downloadBtn.disabled = false;
-        elements.downloadBtn.title = 'Play the video first, then click to download';
-        updateStatus('Lecture Detected', 'ready');
+        elements.lectureMeta.textContent = '⏳ Play video to capture stream...';
+        elements.downloadBtn.disabled = true;
+    }
+
+    // Check if already downloaded
+    await checkIfDownloaded(lectureInfo.title);
+}
+
+// ============================================
+// Check If Already Downloaded
+// ============================================
+async function checkIfDownloaded(title) {
+    if (!isBackendOnline || !title) return;
+
+    try {
+        const response = await fetch(`${API_ENDPOINTS.checkRecording}?title=${encodeURIComponent(title)}`);
+        const data = await response.json();
+
+        if (data.exists) {
+            elements.downloadedBadge.style.display = 'inline-flex';
+            elements.downloadedBadge.textContent = data.status === 'processed' ? '✓ Processed' : '✓ Downloaded';
+
+            // Hide download controls, show dashboard button
+            elements.timeInputs.style.display = 'none';
+            elements.downloadBtn.style.display = 'none';
+            elements.postDownload.style.display = 'flex';
+
+            // Update meta to reflect status
+            if (data.status === 'processed') {
+                elements.lectureMeta.textContent = '✓ Notes ready in dashboard';
+            } else {
+                elements.lectureMeta.textContent = '✓ Downloaded - ready to process';
+            }
+        } else {
+            elements.downloadedBadge.style.display = 'none';
+        }
+    } catch (error) {
+        console.log('[Popup] Error checking download status:', error.message);
     }
 }
 
 // ============================================
-// Download Functionality
+// Download Handling
 // ============================================
-
-function setupEventListeners() {
-    elements.downloadBtn.addEventListener('click', handleDownload);
-    elements.processBtn.addEventListener('click', handleProcess);
-    elements.settingsBtn.addEventListener('click', openSettings);
-
-    // Developer mode toggle
-    elements.devModeToggle.addEventListener('change', handleDevModeToggle);
-}
-
 async function handleDownload() {
-    if (!currentLecture || isDownloading) return;
+    if (!currentLecture) return;
 
     const backendOnline = await checkBackendHealth();
     if (!backendOnline) {
-        alert('Backend server is not running.\n\nStart it with:\npython -m backend.server');
         return;
     }
 
-    isDownloading = true;
-    elements.downloadBtn.disabled = true;
-    elements.progressContainer.style.display = 'block';
-    updateStatus('Downloading...', 'processing');
+    // Get fresh stream info from content script
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    let freshStreamInfo = currentLecture.streamInfo;
 
     try {
-        // CRITICAL: Fetch FRESH streamInfo from content script before downloading
-        // The currentLecture.streamInfo might be stale if set when popup opened
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        let freshStreamInfo = currentLecture.streamInfo;
-
-        try {
-            const freshLecture = await chrome.tabs.sendMessage(tab.id, { action: 'getLectureInfo' });
-            if (freshLecture && freshLecture.streamInfo) {
-                freshStreamInfo = freshLecture.streamInfo;
-                console.log('[Popup] Using FRESH streamInfo:', freshStreamInfo?.baseUrl);
-            } else {
-                console.log('[Popup] No fresh streamInfo, using cached');
-            }
-        } catch (e) {
-            console.log('[Popup] Could not get fresh streamInfo, using cached:', e.message);
+        const freshLecture = await chrome.tabs.sendMessage(tab.id, { action: 'getLectureInfo' });
+        if (freshLecture && freshLecture.streamInfo) {
+            freshStreamInfo = freshLecture.streamInfo;
         }
+    } catch (e) {
+        console.log('[Popup] Could not get fresh streamInfo:', e.message);
+    }
 
-        // Build download request with FRESH stream info
-        const downloadRequest = {
-            action: 'startDownload',
-            lecture: {
-                ...currentLecture,
-                streamInfo: freshStreamInfo  // Use FRESH data!
-            },
-            devMode: devModeEnabled
-        };
+    if (!freshStreamInfo?.baseUrl && !freshStreamInfo?.streamUrl) {
+        elements.lectureMeta.textContent = '⚠️ Play video first to capture stream';
+        return;
+    }
 
-        // Add time settings if dev mode is enabled
-        if (devModeEnabled) {
-            downloadRequest.startTime = parseTimeToSeconds(elements.startTimeInput.value);
-            downloadRequest.endTime = parseTimeToSeconds(elements.endTimeInput.value);
-        }
+    // Build request
+    const downloadRequest = {
+        action: 'startDownload',
+        lecture: {
+            ...currentLecture,
+            streamInfo: freshStreamInfo
+        },
+        startTime: parseTimeToSeconds(elements.startTime.value),
+        endTime: parseTimeToSeconds(elements.endTime.value)
+    };
 
-        console.log('[Popup] Sending download request with baseUrl:', freshStreamInfo?.baseUrl);
+    // Update UI
+    elements.downloadBtn.disabled = true;
+    elements.timeInputs.style.display = 'none';
+    elements.progressSection.style.display = 'block';
+    elements.statusDot.classList.add('processing');
+    updateProgressUI(0, 'Starting download...');
 
-        // Send download request to background worker
+    try {
         const response = await chrome.runtime.sendMessage(downloadRequest);
 
         if (response.success) {
-            // Start polling for progress
-            pollDownloadProgress(response.downloadId);
+            startProgressPolling(response.downloadId);
         } else {
             throw new Error(response.error || 'Download failed to start');
         }
     } catch (error) {
-        console.error('Download error:', error);
-        alert(`Download failed: ${error.message}`);
-        resetDownloadUI();
+        console.error('[Popup] Download error:', error);
+        resetToReady();
+        elements.lectureMeta.textContent = '⚠️ ' + error.message;
     }
 }
 
-async function pollDownloadProgress(downloadId) {
-    const pollInterval = setInterval(async () => {
+// ============================================
+// Progress Polling
+// ============================================
+function startProgressPolling(downloadId) {
+    // Clear any existing poll
+    if (pollInterval) {
+        clearInterval(pollInterval);
+    }
+
+    pollInterval = setInterval(async () => {
         try {
-            const response = await fetch(`${API_ENDPOINTS.status}/${downloadId}`);
-            const data = await response.json();
+            // Get status from background worker (source of truth)
+            const jobs = await chrome.runtime.sendMessage({ action: 'getActiveJobs' });
 
-            updateProgress(data.progress);
+            if (jobs.download) {
+                updateProgressUI(jobs.download.progress, jobs.download.message);
 
-            if (data.status === 'complete') {
+                if (jobs.download.status === 'complete') {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    onDownloadComplete(jobs.download);
+                } else if (jobs.download.status === 'error') {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    onDownloadError(jobs.download.error);
+                }
+            } else {
+                // No active download - might have completed
                 clearInterval(pollInterval);
-                onDownloadComplete(data);
-            } else if (data.status === 'error') {
-                clearInterval(pollInterval);
-                throw new Error(data.error);
+                pollInterval = null;
             }
         } catch (error) {
-            clearInterval(pollInterval);
-            console.error('Progress polling error:', error);
-            resetDownloadUI();
+            console.error('[Popup] Polling error:', error);
         }
-    }, 1000);
-}
-
-function updateProgress(percent) {
-    elements.progressFill.style.width = `${percent}%`;
-    elements.progressText.textContent = `${Math.round(percent)}%`;
-}
-
-function onDownloadComplete(data) {
-    updateStatus('Download Complete', 'ready');
-    updateProgress(100);
-
-    setTimeout(() => {
-        elements.progressContainer.style.display = 'none';
-        elements.processingSection.style.display = 'block';
-        isDownloading = false;
-        elements.downloadBtn.disabled = false;
-        elements.downloadBtn.innerHTML = '<span class="btn-icon">✅</span>Downloaded';
-
-        // Save to recent downloads
-        saveRecentDownload({
-            title: currentLecture.title,
-            path: data.path,
-            date: new Date().toISOString()
-        });
-
-        loadRecentDownloads();
     }, 500);
 }
 
-function resetDownloadUI() {
-    isDownloading = false;
-    elements.downloadBtn.disabled = false;
-    elements.progressContainer.style.display = 'none';
-    updateProgress(0);
-    updateStatus('Ready', 'ready');
+function updateProgressUI(percent, message) {
+    elements.progressPercent.textContent = `${Math.round(percent)}%`;
+    elements.progressFill.style.width = `${percent}%`;
+    elements.progressMessage.textContent = message || 'Processing...';
+}
+
+function onDownloadComplete(downloadJob) {
+    console.log('[Popup] Download complete:', downloadJob);
+
+    elements.statusDot.classList.remove('processing');
+    elements.progressSection.style.display = 'none';
+    elements.postDownload.style.display = 'flex';
+
+    // Update badge
+    elements.downloadedBadge.style.display = 'inline-flex';
+    elements.downloadedBadge.textContent = '✓ Downloaded';
+}
+
+function onDownloadError(errorMessage) {
+    console.error('[Popup] Download error:', errorMessage);
+
+    elements.statusDot.classList.remove('processing');
+    elements.progressSection.style.display = 'none';
+
+    elements.lectureMeta.textContent = '⚠️ ' + (errorMessage || 'Download failed');
+
+    resetToReady();
+}
+
+function resetToReady() {
+    elements.timeInputs.style.display = 'flex';
+    elements.downloadBtn.style.display = 'block';
+    elements.downloadBtn.disabled = !isBackendOnline;
+    elements.downloadBtn.innerHTML = '<span class="btn-icon">↓</span> Download Lecture';
+    elements.progressSection.style.display = 'none';
+    elements.postDownload.style.display = 'none';
 }
 
 // ============================================
-// Processing Functionality
+// Dashboard
 // ============================================
-
-async function handleProcess() {
-    if (isProcessing) return;
-
-    const options = {
-        transcribe: document.getElementById('optTranscribe').checked,
-        notes: document.getElementById('optNotes').checked,
-        announcements: document.getElementById('optAnnouncements').checked,
-        filter: document.getElementById('optFilter').checked,
-    };
-
-    if (!options.transcribe && !options.notes && !options.announcements && !options.filter) {
-        alert('Please select at least one processing option');
-        return;
-    }
-
-    isProcessing = true;
-    elements.processBtn.disabled = true;
-    updateStatus('Processing with AI...', 'processing');
-
-    try {
-        const response = await chrome.runtime.sendMessage({
-            action: 'startProcessing',
-            lecture: currentLecture,
-            options: options
-        });
-
-        if (response.success) {
-            // Open results in new tab
-            chrome.tabs.create({ url: response.resultsUrl });
-            updateStatus('Processing Complete', 'ready');
-        } else {
-            throw new Error(response.error);
-        }
-    } catch (error) {
-        console.error('Processing error:', error);
-        alert(`Processing failed: ${error.message}`);
-    } finally {
-        isProcessing = false;
-        elements.processBtn.disabled = false;
-        updateStatus('Ready', 'ready');
-    }
-}
-
-// ============================================
-// Recent Downloads
-// ============================================
-
-async function loadRecentDownloads() {
-    try {
-        const data = await chrome.storage.local.get('recentDownloads');
-        const downloads = data.recentDownloads || [];
-
-        if (downloads.length === 0) {
-            elements.recentList.innerHTML = '<p class="empty-state">No downloads yet</p>';
-            return;
-        }
-
-        elements.recentList.innerHTML = downloads.slice(0, 5).map(download => `
-      <div class="recent-item" data-path="${download.path}">
-        <span class="title">${download.title}</span>
-        <span class="date">${formatDate(download.date)}</span>
-      </div>
-    `).join('');
-
-        // Add click handlers
-        elements.recentList.querySelectorAll('.recent-item').forEach(item => {
-            item.addEventListener('click', () => {
-                // TODO: Open in file explorer or load for processing
-                console.log('Open:', item.dataset.path);
-            });
-        });
-    } catch (error) {
-        console.error('Error loading recent downloads:', error);
-    }
-}
-
-async function saveRecentDownload(download) {
-    try {
-        const data = await chrome.storage.local.get('recentDownloads');
-        const downloads = data.recentDownloads || [];
-        downloads.unshift(download);
-        await chrome.storage.local.set({ recentDownloads: downloads.slice(0, 20) });
-    } catch (error) {
-        console.error('Error saving recent download:', error);
-    }
+function openDashboard() {
+    chrome.tabs.create({ url: DASHBOARD_URL });
 }
 
 // ============================================
 // Utilities
 // ============================================
-
-function updateStatus(text, state = 'ready') {
-    elements.statusText.textContent = text;
-    elements.statusDot.className = 'status-dot';
-
-    if (state === 'processing') {
-        elements.statusDot.classList.add('processing');
-    } else if (state === 'offline') {
-        elements.statusDot.classList.add('offline');
-    }
-}
-
-function formatDuration(seconds) {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-
-    if (hrs > 0) {
-        return `${hrs}h ${mins}m`;
-    }
-    return `${mins} min`;
-}
-
-function formatDate(isoString) {
-    const date = new Date(isoString);
-    const now = new Date();
-    const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return `${diffDays} days ago`;
-
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function openSettings() {
-    chrome.runtime.openOptionsPage();
-}
-
-// ============================================
-// Developer Mode Functions
-// ============================================
-
-async function loadDevModeSettings() {
-    try {
-        const data = await chrome.storage.local.get(['devModeEnabled', 'devStartTime', 'devEndTime']);
-        devModeEnabled = data.devModeEnabled || false;
-
-        // Update UI
-        elements.devModeToggle.checked = devModeEnabled;
-        elements.devModeOptions.style.display = devModeEnabled ? 'block' : 'none';
-        elements.devModeBadge.style.display = devModeEnabled ? 'inline-block' : 'none';
-
-        // Restore time values
-        if (data.devStartTime) {
-            elements.startTimeInput.value = data.devStartTime;
-        }
-        if (data.devEndTime) {
-            elements.endTimeInput.value = data.devEndTime;
-        }
-    } catch (error) {
-        console.error('Error loading dev mode settings:', error);
-    }
-}
-
-async function handleDevModeToggle() {
-    devModeEnabled = elements.devModeToggle.checked;
-
-    // Update UI
-    elements.devModeOptions.style.display = devModeEnabled ? 'block' : 'none';
-    elements.devModeBadge.style.display = devModeEnabled ? 'inline-block' : 'none';
-
-    // Save setting
-    try {
-        await chrome.storage.local.set({
-            devModeEnabled: devModeEnabled,
-            devStartTime: elements.startTimeInput.value,
-            devEndTime: elements.endTimeInput.value
-        });
-    } catch (error) {
-        console.error('Error saving dev mode settings:', error);
-    }
-
-    // Update status indicator
-    if (devModeEnabled) {
-        updateStatus('Developer Mode', 'processing');
-    } else {
-        updateStatus('Ready', 'ready');
-    }
-}
-
 function parseTimeToSeconds(timeString) {
-    // Parse time in format HH:MM:SS or MM:SS
+    if (!timeString || timeString.trim() === '') return null;
+
     const parts = timeString.split(':').map(Number);
 
     if (parts.length === 3) {
-        // HH:MM:SS
         return parts[0] * 3600 + parts[1] * 60 + parts[2];
     } else if (parts.length === 2) {
-        // MM:SS
         return parts[0] * 60 + parts[1];
-    } else if (parts.length === 1) {
-        // Just seconds
+    } else if (parts.length === 1 && !isNaN(parts[0])) {
         return parts[0];
     }
 
-    return 0;
-}
-
-function formatSecondsToTime(totalSeconds) {
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    return null;
 }

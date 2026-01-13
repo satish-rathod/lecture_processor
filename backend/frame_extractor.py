@@ -31,7 +31,9 @@ class FrameExtractor:
         min_interval: float = 3.0,       # Minimum 3 seconds between frames
         fixed_interval: float = 30.0,    # Also extract every 30 seconds as backup
         max_frames: int = 500,
-        hash_threshold: int = 8          # Lower = more strict duplicate removal (was 10)
+        hash_threshold: int = 8,         # Lower = more strict duplicate removal
+        skip_intro: float = 0.0,         # Skip first N seconds (video pre-trimmed)
+        skip_outro: float = 0.0          # Skip last N seconds (video pre-trimmed)
     ):
         """
         Initialize the frame extractor
@@ -43,12 +45,16 @@ class FrameExtractor:
             fixed_interval: Extract a frame every N seconds regardless of scene changes
             max_frames: Maximum number of frames to extract
             hash_threshold: Perceptual hash difference threshold for duplicates
+            skip_intro: Skip first N seconds (branding/intro frames)
+            skip_outro: Skip last N seconds (credits/outro frames)
         """
         self.scene_threshold = scene_threshold
         self.min_interval = min_interval
         self.fixed_interval = fixed_interval
         self.max_frames = max_frames
         self.hash_threshold = hash_threshold
+        self.skip_intro = skip_intro
+        self.skip_outro = skip_outro
         self.progress_callback: Optional[Callable] = None
     
     def set_progress_callback(self, callback: Callable):
@@ -129,7 +135,7 @@ class FrameExtractor:
     
     def generate_interval_timestamps(self, duration: float) -> List[float]:
         """
-        Generate fixed-interval timestamps
+        Generate fixed-interval timestamps, respecting skip_intro and skip_outro
         
         Args:
             duration: Video duration in seconds
@@ -138,35 +144,51 @@ class FrameExtractor:
             List of timestamps at fixed intervals
         """
         timestamps = []
-        t = 0.0
-        while t < duration and len(timestamps) < self.max_frames:
+        # Start after intro
+        t = self.skip_intro
+        # End before outro
+        end_time = max(0, duration - self.skip_outro)
+        
+        while t < end_time and len(timestamps) < self.max_frames:
             timestamps.append(t)
             t += self.fixed_interval
         return timestamps
     
-    def merge_timestamps(self, scene_ts: List[float], interval_ts: List[float]) -> List[float]:
+    def merge_timestamps(self, scene_ts: List[float], interval_ts: List[float], duration: float = 0) -> List[float]:
         """
         Merge scene-detected and interval timestamps, removing duplicates
+        Also filters out intro/outro frames
         
         Args:
             scene_ts: Timestamps from scene detection
             interval_ts: Timestamps from fixed intervals
+            duration: Video duration for outro filtering
             
         Returns:
             Merged and sorted list of unique timestamps
         """
+        # Calculate valid time range
+        min_time = self.skip_intro
+        max_time = duration - self.skip_outro if duration > 0 else float('inf')
+        
+        # Filter scene timestamps to valid range
+        filtered_scene = [ts for ts in scene_ts if min_time <= ts <= max_time]
+        
         # Combine both lists
-        all_ts = set(scene_ts)
+        all_ts = set(filtered_scene)
         
         # Add interval timestamps, but only if not too close to existing ones
         for ts in interval_ts:
+            if ts < min_time or ts > max_time:
+                continue
             too_close = any(abs(ts - existing) < self.min_interval for existing in all_ts)
             if not too_close:
                 all_ts.add(ts)
         
         # Sort and return
         merged = sorted(all_ts)
-        logger.info(f"Merged timestamps: {len(scene_ts)} scene + {len(interval_ts)} interval = {len(merged)} total")
+        logger.info(f"Merged timestamps: {len(filtered_scene)} scene + {len(interval_ts)} interval = {len(merged)} total "
+                   f"(skipped intro={self.skip_intro}s, outro={self.skip_outro}s)")
         
         return merged[:self.max_frames]
     
@@ -310,9 +332,12 @@ class FrameExtractor:
         if use_hybrid and duration > 0:
             # Also generate interval-based timestamps
             interval_timestamps = self.generate_interval_timestamps(duration)
-            timestamps = self.merge_timestamps(scene_timestamps, interval_timestamps)
+            timestamps = self.merge_timestamps(scene_timestamps, interval_timestamps, duration)
         else:
-            timestamps = scene_timestamps
+            # Filter scene timestamps for intro/outro
+            min_time = self.skip_intro
+            max_time = duration - self.skip_outro if duration > 0 else float('inf')
+            timestamps = [ts for ts in scene_timestamps if min_time <= ts <= max_time]
         
         # Extract frames
         frames = self.extract_frames_at_timestamps(video_path, output_dir, timestamps)

@@ -292,11 +292,13 @@ class VideoDownloader:
         logger.info(f"Downloaded {success_count}/{total_chunks} chunks")
         return success_count > 0
     
-    def merge_chunks_to_video(self, output_filename: str = "full_video.mp4") -> str:
+    def merge_chunks_to_video(self, start_chunk: int, end_chunk: int, output_filename: str = "full_video.mp4") -> str:
         """
-        Merge all downloaded chunks into a single video file
+        Merge specific range of chunks into a single video file
         
         Args:
+            start_chunk: Starting chunk number to include
+            end_chunk: Ending chunk number to include
             output_filename: Name of output video file
             
         Returns:
@@ -304,14 +306,41 @@ class VideoDownloader:
         """
         output_path = self.output_dir / output_filename
         
-        # Get list of all chunks, sorted
-        chunks = sorted([f for f in self.chunks_dir.iterdir() if f.suffix == '.ts'])
-        
+        # Get list of chunks within the specified range
+        chunks = []
+        for i in range(start_chunk, end_chunk + 1):
+            # Try to find the file for this chunk
+            # We need to handle potential naming variations if we support them, 
+            # but usually they follow the pattern we detected.
+            # For simplicity, we'll look for any file matching the pattern for this index
+            
+            # Simple approach: Search for any file ending in {i}.ts or {i:0Nd}.ts
+            # Since we know the index, let's just look through the directory for a match
+            # This is slightly inefficient but robust against padding changes
+            
+            found = False
+            for f in self.chunks_dir.iterdir():
+                if f.suffix == '.ts':
+                    # Extract number from filename
+                    try:
+                        # Extract all digits
+                        import re
+                        match = re.search(r'(\d+)\.ts$', f.name)
+                        if match and int(match.group(1)) == i:
+                            chunks.append(f)
+                            found = True
+                            break
+                    except:
+                        continue
+            
+            if not found:
+                logger.warning(f"Chunk {i} missing during merge, skipping...")
+
         if not chunks:
-            logger.error("No chunks found to merge!")
+            logger.error("No chunks found to merge in the specified range!")
             return None
         
-        logger.info(f"Merging {len(chunks)} chunks into single video...")
+        logger.info(f"Merging {len(chunks)} chunks ({start_chunk}-{end_chunk}) into single video...")
         
         # Create concat file
         concat_file = self.output_dir / "concat.txt"
@@ -443,7 +472,7 @@ class VideoDownloader:
         result["chunks_downloaded"] = len(list(self.chunks_dir.glob("*.ts")))
         
         # Step 2: Merge chunks
-        full_video_path = self.merge_chunks_to_video()
+        full_video_path = self.merge_chunks_to_video(start_chunk, end_chunk)
         if not full_video_path:
             logger.error("Failed to merge chunks!")
             return result

@@ -25,3 +25,6 @@ concat.txt
 # IDE
 .vscode/
 .idea/
+
+logs.txt
+*.pdf

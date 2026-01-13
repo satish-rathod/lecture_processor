@@ -21,47 +21,265 @@ logger = logging.getLogger(__name__)
 
 # Prompts for different note generation tasks
 PROMPTS = {
-    "lecture_notes": """You are an expert note-taker. Given the following lecture transcript, create comprehensive, well-structured study notes.
+    "lecture_notes": """You are an expert technical note-taker creating study materials.
 
+LECTURE TITLE: {title}
 TRANSCRIPT:
 {transcript}
-
-Create detailed notes with:
-1. **Key Concepts** - Main ideas and definitions
-2. **Important Details** - Supporting information, examples
-3. **Code/Commands** - Any technical content (format in code blocks)
-4. **Summary** - Brief overview of the lecture
-
-Format your response as clean Markdown. Use headers (##, ###), bullet points, and code blocks where appropriate.
-Be thorough but concise. Include all important information from the lecture.""",
-
-    "summary": """Summarize the following lecture transcript in 3-5 paragraphs, covering the main topics discussed:
-
-TRANSCRIPT:
-{transcript}
-
-Write a clear, comprehensive summary.""",
-
-    "qa_cards": """Based on this lecture transcript, create study flashcards in Q&A format.
-
-TRANSCRIPT:
-{transcript}
-
-Create 10-15 flashcards covering key concepts. Format each as:
-
-**Q:** [Question]
-**A:** [Answer]
 
 ---
 
-Focus on important definitions, concepts, and technical details.""",
+Create **comprehensive, revision-ready notes** using this EXACT structure:
 
-    "key_points": """Extract the key points from this lecture transcript as a bullet list:
+### 1. Overview
+One paragraph: What this lecture covers, prerequisites, and target audience.
+
+### 2. Core Concepts
+Use a TABLE format:
+| Concept | Definition | Key Points |
+|---------|------------|------------|
+| ... | ... | ... |
+
+### 3. Detailed Sections
+For EACH major topic discussed:
+
+#### [Topic Name]
+- **What**: Clear definition
+- **Why**: Importance/use case  
+- **How**: Implementation steps or process
+- **Example**: Code or real-world example
+
+### 4. Comparisons (if applicable)
+Create comparison tables for related concepts:
+| Aspect | Option A | Option B |
+|--------|----------|----------|
+
+### 5. Architecture/Diagrams
+Describe any system architectures or flows in text with clear structure.
+
+### 6. Key Takeaways
+- Bullet list of 5-8 most important points
+- Include specific values, commands, or configs mentioned
+
+### 7. References & Tools
+List any tools, libraries, frameworks, or resources mentioned.
+
+---
+
+RULES:
+- Include ALL technical details from the transcript
+- Use code blocks for commands, configs, code snippets
+- Create tables for structured information
+- Be SPECIFIC, not generic
+- If the speaker mentions specific numbers, tools, or examples - include them""",
+
+    "summary": """Create a DETAILED summary of this lecture with structured sections:
 
 TRANSCRIPT:
 {transcript}
 
-List the most important points, one per line with a bullet (-)."""
+Generate the summary with these EXACT sections:
+
+## Lecture Overview
+2-3 sentences on what this lecture is about and its context.
+
+## Topics Covered
+List ALL topics discussed as a numbered list:
+1. [Topic Name] - brief description
+2. [Topic Name] - brief description
+...
+
+## Key Concepts Explained
+For each major concept:
+- **[Concept]**: Explanation in 2-3 sentences
+
+## Technical Details
+- Specific tools, commands, or configurations mentioned
+- Code examples or syntax discussed
+- Any metrics, numbers, or benchmarks
+
+## Practical Applications
+How the concepts apply in real-world scenarios.
+
+## Takeaways
+Bullet list of 5-8 most important points to remember.
+
+Be COMPREHENSIVE. Include ALL topics from the lecture.""",
+
+    "announcements": """Extract ACTIONABLE ITEMS from this lecture transcript.
+
+TRANSCRIPT:
+{transcript}
+
+Find and list:
+
+## Assignments & Deadlines
+- Any homework, projects, or assignments mentioned
+- Due dates and deadlines
+- Submission requirements
+
+## Action Items
+- Things students need to do
+- Things to install, set up, or prepare
+- Readings or resources to review
+
+## Important Announcements
+- Schedule changes (classes, exams, holidays)
+- Grading policies or changes
+- Administrative notices
+
+## Resources to Check
+- Links, tools, or documentation mentioned
+- Books or papers referenced
+- Websites or repositories
+
+If no actionable items found in a category, write "None mentioned".
+Be specific - include dates, names, and details.""",
+
+    "qa_cards": """Create study flashcards from this lecture:
+
+TRANSCRIPT:
+{transcript}
+
+Create 15-20 flashcards covering:
+- Definitions of key terms
+- Technical concepts
+- Comparisons (X vs Y)
+- Commands/syntax
+- Best practices
+
+Format EXACTLY as:
+
+**Q:** [Specific question]
+**A:** [Concise but complete answer]
+
+---
+
+Make questions specific and testable, not vague.""",
+
+    "key_points": """Extract key points from this lecture as a comprehensive bullet list:
+
+TRANSCRIPT:
+{transcript}
+
+List ALL important points including:
+- Definitions and concepts
+- Technical details (commands, configs, code)
+- Best practices mentioned
+- Tools and technologies discussed
+- Comparisons made
+- Examples given
+
+Format: One bullet (-) per point. Be specific.""",
+
+    # OPTIMIZED: Single prompt for all outputs (4 sections)
+    "batch_all": """You are an expert technical note-taker. Create FOUR study materials from this lecture.
+
+LECTURE TITLE: {title}
+TRANSCRIPT:
+{transcript}
+
+---
+
+Generate these FOUR sections with EXACT headers:
+
+## LECTURE_NOTES_START
+
+### Overview
+One paragraph on what this lecture covers.
+
+### Core Concepts Table
+| Concept | Definition | Example |
+|---------|------------|---------|
+| ... | ... | ... |
+
+### Detailed Sections
+For each topic:
+#### [Topic Name]
+- **What**: Definition
+- **Why**: Use case
+- **How**: Steps/implementation
+- Code examples in code blocks
+
+### Comparisons (if topics were compared)
+| Aspect | A | B |
+|--------|---|---|
+
+### Key Takeaways
+- 5-8 bullet points of main learnings
+
+## LECTURE_NOTES_END
+
+## QA_CARDS_START
+Create 12-15 flashcards:
+**Q:** [Question]
+**A:** [Answer]
+---
+(repeat for each card)
+## QA_CARDS_END
+
+## SUMMARY_START
+
+### Lecture Overview
+2-3 sentences on what this lecture covers.
+
+### Topics Covered
+1. [Topic] - description
+2. [Topic] - description
+(list ALL topics)
+
+### Key Concepts
+- **[Concept]**: Brief explanation
+
+### Technical Details
+- Tools, commands, configs mentioned
+
+### Takeaways
+- Important points to remember
+
+## SUMMARY_END
+
+## ANNOUNCEMENTS_START
+
+### Assignments & Deadlines
+- Any homework or projects mentioned with dates
+
+### Action Items
+- Things to do, install, or prepare
+
+### Important Notices
+- Schedule changes, grading info, admin notices
+
+### Resources
+- Links, tools, or documentation mentioned
+
+(Write "None mentioned" if a category has nothing)
+
+## ANNOUNCEMENTS_END
+
+RULES: Be SPECIFIC. Include all technical details, commands, dates, and examples from the transcript.""",
+
+    # Combine partial outputs
+    "batch_all_combine": """Merge these partial lecture notes into ONE consolidated document.
+
+PARTIAL OUTPUTS:
+{transcript}
+
+---
+
+Combine following the EXACT structure:
+
+## LECTURE_NOTES_START
+[Merge all notes sections. Remove duplicates. Organize by topic. Keep all tables.]
+## LECTURE_NOTES_END
+
+## QA_CARDS_START
+[Keep best 12-15 unique flashcards]
+## QA_CARDS_END
+
+## SUMMARY_START
+[Merge into single coherent 4-5 paragraph summary]
+## SUMMARY_END"""
 }
 
 
@@ -72,7 +290,7 @@ class NotesGenerator:
         self,
         model: str = "gpt-oss:20b",
         ollama_host: str = "http://localhost:11434",
-        chunk_size: int = 8000
+        chunk_size: int = 16000  # Increased for better context
     ):
         """
         Initialize the notes generator
@@ -146,15 +364,17 @@ class NotesGenerator:
         self,
         transcript: str,
         prompt_type: str = "lecture_notes",
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        title: str = "Lecture"
     ) -> str:
         """
         Generate notes from transcript
         
         Args:
             transcript: The lecture transcript text
-            prompt_type: Type of notes (lecture_notes, summary, qa_cards, key_points)
+            prompt_type: Type of notes (lecture_notes, summary, qa_cards, key_points, batch_all)
             custom_prompt: Optional custom prompt (overrides prompt_type)
+            title: Lecture title for context
             
         Returns:
             Generated notes as string
@@ -175,7 +395,10 @@ class NotesGenerator:
         
         if len(chunks) == 1:
             # Single chunk - direct generation
-            prompt = prompt_template.format(transcript=chunks[0])
+            try:
+                prompt = prompt_template.format(transcript=chunks[0], title=title)
+            except KeyError:
+                prompt = prompt_template.format(transcript=chunks[0])
             response = client.generate(model=self.model, prompt=prompt)
             self._update_progress(1, 1, "Generation complete")
             return response["response"]
@@ -186,19 +409,28 @@ class NotesGenerator:
             for i, chunk in enumerate(chunks):
                 self._update_progress(i, len(chunks), f"Processing chunk {i+1}/{len(chunks)}")
                 
-                prompt = prompt_template.format(transcript=chunk)
+                try:
+                    prompt = prompt_template.format(transcript=chunk, title=title)
+                except KeyError:
+                    prompt = prompt_template.format(transcript=chunk)
                 response = client.generate(model=self.model, prompt=prompt)
                 partial_notes.append(response["response"])
             
             # Combine partial notes
             self._update_progress(len(chunks), len(chunks) + 1, "Combining notes...")
             
-            combine_prompt = f"""Combine and organize these partial lecture notes into a single, coherent document.
+            # Select appropriate combine prompt
+            if prompt_type == "batch_all":
+                combine_template = PROMPTS["batch_all_combine"]
+            else:
+                combine_template = """Combine and organize these partial outputs into a single, coherent document.
 Remove any duplicates and organize by topic:
 
-{chr(10).join(partial_notes)}
+{transcript}
 
 Create a well-structured final document in Markdown format."""
+            
+            combine_prompt = combine_template.format(transcript="\n\n".join(partial_notes))
             
             final_response = client.generate(model=self.model, prompt=combine_prompt)
             
@@ -209,7 +441,8 @@ Create a well-structured final document in Markdown format."""
         self,
         transcript: str,
         output_dir: str,
-        title: str = "Lecture"
+        title: str = "Lecture",
+        use_batch: bool = True
     ) -> dict:
         """
         Generate all note types and save to files
@@ -218,6 +451,7 @@ Create a well-structured final document in Markdown format."""
             transcript: The lecture transcript
             output_dir: Directory to save outputs
             title: Lecture title for headers
+            use_batch: Use optimized batch generation (single LLM call)
             
         Returns:
             Dict with paths to generated files
@@ -225,6 +459,122 @@ Create a well-structured final document in Markdown format."""
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         
+        results = {}
+        
+        if use_batch:
+            # OPTIMIZED: Single LLM call for all three outputs
+            return self._generate_all_batch(transcript, output_dir, title)
+        else:
+            # Legacy: Three separate LLM calls
+            return self._generate_all_sequential(transcript, output_dir, title)
+    
+    def _parse_batch_response(self, response: str) -> dict:
+        """Parse the batch response into separate sections"""
+        sections = {
+            "notes": "",
+            "qa_cards": "",
+            "summary": "",
+            "announcements": ""
+        }
+        
+        # Extract lecture notes
+        if "## LECTURE_NOTES_START" in response and "## LECTURE_NOTES_END" in response:
+            start = response.find("## LECTURE_NOTES_START") + len("## LECTURE_NOTES_START")
+            end = response.find("## LECTURE_NOTES_END")
+            sections["notes"] = response[start:end].strip()
+        
+        # Extract Q&A cards
+        if "## QA_CARDS_START" in response and "## QA_CARDS_END" in response:
+            start = response.find("## QA_CARDS_START") + len("## QA_CARDS_START")
+            end = response.find("## QA_CARDS_END")
+            sections["qa_cards"] = response[start:end].strip()
+        
+        # Extract summary
+        if "## SUMMARY_START" in response and "## SUMMARY_END" in response:
+            start = response.find("## SUMMARY_START") + len("## SUMMARY_START")
+            end = response.find("## SUMMARY_END")
+            sections["summary"] = response[start:end].strip()
+        
+        # Extract announcements/actionables
+        if "## ANNOUNCEMENTS_START" in response and "## ANNOUNCEMENTS_END" in response:
+            start = response.find("## ANNOUNCEMENTS_START") + len("## ANNOUNCEMENTS_START")
+            end = response.find("## ANNOUNCEMENTS_END")
+            sections["announcements"] = response[start:end].strip()
+        
+        return sections
+    
+    def _generate_all_batch(
+        self,
+        transcript: str,
+        output_dir: Path,
+        title: str
+    ) -> dict:
+        """Optimized: Generate all three outputs in a single LLM call"""
+        results = {}
+        
+        logger.info("Generating all notes in batch mode (optimized)...")
+        self._update_progress(0, 1, "Generating all notes in single call...")
+        
+        try:
+            # Generate all in one call
+            response = self.generate(transcript, "batch_all", title=title)
+            
+            # Parse the response into sections
+            sections = self._parse_batch_response(response)
+            
+            # Save lecture notes
+            if sections["notes"]:
+                notes_path = output_dir / "lecture_notes.md"
+                with open(notes_path, "w", encoding="utf-8") as f:
+                    f.write(f"# Lecture Notes: {title}\n\n")
+                    f.write(sections["notes"])
+                results["notes"] = str(notes_path)
+                logger.info(f"Saved lecture notes to {notes_path}")
+            
+            # Save Q&A cards
+            if sections["qa_cards"]:
+                qa_path = output_dir / "qa_cards.md"
+                with open(qa_path, "w", encoding="utf-8") as f:
+                    f.write(f"# Flashcards: {title}\n\n")
+                    f.write(sections["qa_cards"])
+                results["qa_cards"] = str(qa_path)
+                logger.info(f"Saved Q&A cards to {qa_path}")
+            
+            # Save summary
+            if sections["summary"]:
+                summary_path = output_dir / "summary.md"
+                with open(summary_path, "w", encoding="utf-8") as f:
+                    f.write(f"# Summary: {title}\n\n")
+                    f.write(sections["summary"])
+                results["summary"] = str(summary_path)
+                logger.info(f"Saved summary to {summary_path}")
+            
+            # Save announcements/actionables
+            if sections["announcements"]:
+                announcements_path = output_dir / "announcements.md"
+                with open(announcements_path, "w", encoding="utf-8") as f:
+                    f.write(f"# Action Items & Announcements: {title}\n\n")
+                    f.write(sections["announcements"])
+                results["announcements"] = str(announcements_path)
+                logger.info(f"Saved announcements to {announcements_path}")
+            
+            self._update_progress(1, 1, "All notes generated (batch)")
+            
+        except Exception as e:
+            logger.error(f"Batch generation failed: {e}")
+            # Fallback to sequential
+            logger.info("Falling back to sequential generation...")
+            return self._generate_all_sequential(transcript, output_dir, title)
+        
+        return results
+    
+    def _generate_all_sequential(
+        self,
+        transcript: str,
+        output_dir: Path,
+        title: str
+    ) -> dict:
+        """Legacy: Generate each output type separately"""
         results = {}
         
         # Generate main lecture notes
@@ -265,7 +615,7 @@ Create a well-structured final document in Markdown format."""
         
         # Generate summary
         logger.info("Generating summary...")
-        self._update_progress(2, 3, "Generating summary...")
+        self._update_progress(2, 4, "Generating summary...")
         
         try:
             summary = self.generate(transcript, "summary")
@@ -280,8 +630,26 @@ Create a well-structured final document in Markdown format."""
         except Exception as e:
             logger.error(f"Failed to generate summary: {e}")
             results["summary_error"] = str(e)
+
+        # Generate announcements
+        logger.info("Generating announcements...")
+        self._update_progress(3, 4, "Generating announcements...")
         
-        self._update_progress(3, 3, "All notes generated")
+        try:
+            announcements = self.generate(transcript, "announcements")
+            announcements_path = output_dir / "announcements.md"
+            
+            with open(announcements_path, "w", encoding="utf-8") as f:
+                f.write(f"# Action Items & Announcements: {title}\n\n")
+                f.write(announcements)
+            
+            results["announcements"] = str(announcements_path)
+            logger.info(f"Saved announcements to {announcements_path}")
+        except Exception as e:
+            logger.error(f"Failed to generate announcements: {e}")
+            results["announcements_error"] = str(e)
+        
+        self._update_progress(4, 4, "All notes generated")
         
         return results
 
