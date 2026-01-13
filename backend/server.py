@@ -280,7 +280,7 @@ async def list_recordings():
                     "summary": f"/content/{folder_name}/summary.md" if (output_folder / "summary.md").exists() else None,
                     "announcements": f"/content/{folder_name}/announcements.md" if (output_folder / "announcements.md").exists() else None,
                     "slides": f"/content/{folder_name}/slides/" if (output_folder / "slides").exists() else None,
-                    "transcript": f"/content/{folder_name}/transcript.txt" if (output_folder / "transcript.txt").exists() else None,
+                    "transcript": f"/content/{folder_name}/transcript_with_slides.md" if (output_folder / "transcript_with_slides.md").exists() else (f"/content/{folder_name}/transcript.md" if (output_folder / "transcript.md").exists() else (f"/content/{folder_name}/transcript.txt" if (output_folder / "transcript.txt").exists() else None)),
                 }
             }
     

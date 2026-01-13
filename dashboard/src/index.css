@@ -47,7 +47,7 @@ body {
 .markdown-content {
   color: #ebebeb;
   line-height: 1.7;
-  max-width: 65ch;
+  max-width: 100%;
 }
 
 .markdown-content h1 {

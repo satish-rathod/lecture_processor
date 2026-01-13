@@ -329,7 +329,40 @@ class ProcessingPipeline:
                 if not text:
                     continue
                 
-                # Find and insert any frames that fall before this chunk
+            # Group chunks into paragraphs
+            current_paragraph = []
+            paragraph_start_time = None
+            paragraph_end_time = None
+            
+            for chunk in chunks:
+                start_time = chunk.get("timestamp", [0, 0])[0]
+                end_time = chunk.get("timestamp", [0, 0])[1]
+                text = chunk.get("text", "").strip()
+                
+                if not text:
+                    continue
+                
+                # If we have a pending slide that needs to be inserted before this chunk
+                # we must flush the current paragraph first
+                has_pending_slide = False
+                if current_frame_idx < len(frame_timestamps):
+                     if frame_timestamps[current_frame_idx] <= start_time:
+                         has_pending_slide = True
+                
+                # Check if we should start a new paragraph (time gap, length, or pending slide)
+                if paragraph_start_time is not None:
+                    duration = end_time - paragraph_start_time
+                    gap = start_time - paragraph_end_time
+                    
+                    if has_pending_slide or duration > 30 or gap > 2 or len(" ".join(current_paragraph)) > 400:
+                        # Flush current paragraph
+                        start_str = self._format_ts(paragraph_start_time)
+                        para_text = " ".join(current_paragraph)
+                        f.write(f"**[{start_str}]** [▶](video.mp4#t={int(paragraph_start_time)}) {para_text}\n\n")
+                        current_paragraph = []
+                        paragraph_start_time = None
+                
+                # Insert slides that occur before this chunk (or after the flushed paragraph)
                 while current_frame_idx < len(frame_timestamps):
                     frame_ts = frame_timestamps[current_frame_idx]
                     if frame_ts <= start_time:
@@ -343,28 +376,32 @@ class ProcessingPipeline:
                         # Add analysis if available
                         if filename in analysis_lookup:
                             analysis = analysis_lookup[filename]
-                            
-                            # Add OCR text
                             ocr_text = analysis.get("ocr_text", "").strip()
                             if ocr_text:
                                 f.write(f"**📝 Text on slide:**\n> {ocr_text[:500]}\n\n")
-                            
-                            # Add vision analysis
                             vision = analysis.get("vision_analysis", "").strip()
                             if vision:
                                 f.write(f"**🔍 Slide Analysis:**\n{vision}\n\n")
                         
                         f.write("---\n\n")
                         current_frame_idx += 1
+                        
+                        # Reset paragraph start after slide
+                        # paragraph_start_time = None 
                     else:
                         break
                 
-                # Write transcript chunk
-                start_str = self._format_ts(start_time)
-                end_str = self._format_ts(end_time)
-                f.write(f"**[{start_str}]** ")
-                f.write(f"[▶](video.mp4#t={int(start_time)}) ")
-                f.write(f"{text}\n\n")
+                # Add to current paragraph
+                if paragraph_start_time is None:
+                    paragraph_start_time = start_time
+                paragraph_end_time = end_time
+                current_paragraph.append(text)
+            
+            # Flush final paragraph
+            if current_paragraph and paragraph_start_time is not None:
+                start_str = self._format_ts(paragraph_start_time)
+                para_text = " ".join(current_paragraph)
+                f.write(f"**[{start_str}]** [▶](video.mp4#t={int(paragraph_start_time)}) {para_text}\n\n")
             
             # Add any remaining frames at the end
             while current_frame_idx < len(frame_timestamps):
@@ -516,18 +553,94 @@ class ProcessingPipeline:
                 slide["ocr_text"] = slide_analyses[i].get("ocr_text", "")[:300]
             slides_data.append(slide)
         
-        # Build transcript HTML with timestamps
+        # Build transcript HTML with timestamps and slides
         transcript_html = ""
+        current_paragraph = []
+        paragraph_start_time = None
+        paragraph_end_time = None
+        current_frame_idx = 0
+        
+        # Sort frames by timestamp for sequential access
+        # (Assuming frames are already sorted, but good to be safe if Logic changes)
+        frames.sort(key=lambda x: x.get("timestamp", 0))
+        frame_timestamps = [f.get("timestamp", 0) for f in frames]
+        frame_lookup = {f.get("timestamp", 0): f for f in frames}
+        
         for chunk in transcript_chunks:
-            start = chunk.get("timestamp", [0, 0])[0] or 0
+            start_time = chunk.get("timestamp", [0, 0])[0] or 0
+            end_time = chunk.get("timestamp", [0, 0])[1] or 0
             text = chunk.get("text", "").strip()
-            if text:
-                ts_display = self._format_ts(start)
-                transcript_html += f'''
-                <div class="transcript-chunk" data-time="{int(start)}">
-                    <span class="timestamp">[{ts_display}]</span>
-                    <span class="text">{text}</span>
-                </div>'''
+            
+            if not text:
+                continue
+            
+            # Check for pending slides
+            has_pending_slide = False
+            if current_frame_idx < len(frame_timestamps):
+                    if frame_timestamps[current_frame_idx] <= start_time:
+                        has_pending_slide = True
+            
+            # Flush paragraph if needed
+            if paragraph_start_time is not None:
+                duration = end_time - paragraph_start_time
+                gap = start_time - paragraph_end_time
+                
+                if has_pending_slide or duration > 30 or gap > 2 or len(" ".join(current_paragraph)) > 400:
+                    ts_display = self._format_ts(paragraph_start_time)
+                    para_text = " ".join(current_paragraph)
+                    transcript_html += f'''
+                    <div class="transcript-chunk" data-time="{int(paragraph_start_time)}">
+                        <span class="timestamp">[{ts_display}]</span>
+                        <span class="text">{para_text}</span>
+                    </div>'''
+                    current_paragraph = []
+                    paragraph_start_time = None
+            
+            # Insert Interleaved Slides
+            while current_frame_idx < len(frame_timestamps):
+                frame_ts = frame_timestamps[current_frame_idx]
+                if frame_ts <= start_time:
+                    frame = frame_lookup[frame_ts]
+                    ts_display = frame.get("timestamp_display", self._format_ts(frame_ts))
+                    filename = frame.get("filename", "")
+                    
+                    # Add slide insert to transcript
+                    transcript_html += f'''
+                    <div class="slide-insert" data-time="{int(frame_ts)}">
+                        <div class="slide-insert-header">🖼️ Slide at {ts_display}</div>
+                        <img src="slides/{filename}" alt="Slide at {ts_display}" loading="lazy">
+                    </div>'''
+                    current_frame_idx += 1
+                else:
+                    break
+            
+            if paragraph_start_time is None:
+                paragraph_start_time = start_time
+            paragraph_end_time = end_time
+            current_paragraph.append(text)
+            
+        # Flush final paragraph
+        if current_paragraph and paragraph_start_time is not None:
+            ts_display = self._format_ts(paragraph_start_time)
+            para_text = " ".join(current_paragraph)
+            transcript_html += f'''
+            <div class="transcript-chunk" data-time="{int(paragraph_start_time)}">
+                <span class="timestamp">[{ts_display}]</span>
+                <span class="text">{para_text}</span>
+            </div>'''
+        
+        # Add remaining slides
+        while current_frame_idx < len(frame_timestamps):
+            frame_ts = frame_timestamps[current_frame_idx]
+            frame = frame_lookup[frame_ts]
+            ts_display = frame.get("timestamp_display", self._format_ts(frame_ts))
+            filename = frame.get("filename", "")
+            transcript_html += f'''
+            <div class="slide-insert" data-time="{int(frame_ts)}">
+                <div class="slide-insert-header">🖼️ Slide at {ts_display}</div>
+                <img src="slides/{filename}" alt="Slide at {ts_display}" loading="lazy">
+            </div>'''
+            current_frame_idx += 1
         
         # Build slides gallery HTML
         slides_html = ""
@@ -584,6 +697,12 @@ class ProcessingPipeline:
         .transcript-chunk:hover {{ border-left-color: #3b82f6; background: #262626; }}
         .timestamp {{ color: #3b82f6; font-size: 0.8rem; margin-right: 10px; font-family: monospace; }}
         .text {{ color: #ccc; }}
+        
+        /* Interleaved Slides */
+        .slide-insert {{ margin: 30px 0; background: #2a2a2a; border-radius: 8px; padding: 15px; border: 1px solid #333; }}
+        .slide-insert:hover {{ border-color: #3b82f6; }}
+        .slide-insert img {{ max-width: 100%; border-radius: 4px; display: block; margin-top: 10px; cursor: pointer; max-height: 400px; object-fit: contain; }}
+        .slide-insert-header {{ color: #3b82f6; font-size: 0.9rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }}
         
         /* Slide Modal */
         .modal {{ display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;

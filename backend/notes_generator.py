@@ -67,11 +67,11 @@ List any tools, libraries, frameworks, or resources mentioned.
 ---
 
 RULES:
-- Include ALL technical details from the transcript
-- Use code blocks for commands, configs, code snippets
-- Create tables for structured information
-- Be SPECIFIC, not generic
-- If the speaker mentions specific numbers, tools, or examples - include them""",
+1. Include ALL technical details from the transcript
+2. TABLES: Must use outer pipes `| col |` and aligned columns. Ensure newlines before and after.
+3. FORMATTING: Use standard ASCII hyphens (-), not special characters.
+4. CODE: Put all commands/code in ``` blocks.
+5. Be SPECIFIC, not generic.""",
 
     "summary": """Create a DETAILED summary of this lecture with structured sections:
 
@@ -257,7 +257,11 @@ Create 12-15 flashcards:
 
 ## ANNOUNCEMENTS_END
 
-RULES: Be SPECIFIC. Include all technical details, commands, dates, and examples from the transcript.""",
+RULES: 
+1. Be SPECIFIC. Include all technical details, commands, dates, and examples.
+2. TABLES: Must use outer pipes `| col |` and aligned columns. Ensure newlines before and after tables.
+3. FORMATTING: Use standard ASCII hyphens (-), not special characters.
+4. CODE: Put all commands/code in ``` blocks.""",
 
     # Combine partial outputs
     "batch_all_combine": """Merge these partial lecture notes into ONE consolidated document.

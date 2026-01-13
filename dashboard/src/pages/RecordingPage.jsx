@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, FileText, BookOpen, MessageSquare, Image, FileDown, AlignLeft } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 function RecordingPage() {
     const { id } = useParams();
@@ -160,8 +161,8 @@ function RecordingPage() {
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
                                     className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${activeTab === tab.id
-                                            ? 'border-primary text-foreground'
-                                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                                        ? 'border-primary text-foreground'
+                                        : 'border-transparent text-muted-foreground hover:text-foreground'
                                         }`}
                                 >
                                     <Icon size={16} />
@@ -172,7 +173,7 @@ function RecordingPage() {
                     </div>
 
                     {/* Content */}
-                    <div className="max-w-4xl">
+                    <div className="max-w-6xl mx-auto">
                         {contentLoading ? (
                             <p className="text-muted-foreground">Loading content...</p>
                         ) : activeTab === 'slides' ? (
@@ -183,7 +184,20 @@ function RecordingPage() {
                             </div>
                         ) : (
                             <article className="markdown-content">
-                                <ReactMarkdown>{content}</ReactMarkdown>
+                                <ReactMarkdown
+                                    remarkPlugins={[remarkGfm]}
+                                    urlTransform={(uri) => {
+                                        if (uri.startsWith('http') || uri.startsWith('//') || uri.startsWith('data:')) return uri;
+                                        const currentUrl = recording.artifacts[activeTab];
+                                        if (currentUrl) {
+                                            const basePath = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1);
+                                            return `${basePath}${uri}`;
+                                        }
+                                        return uri;
+                                    }}
+                                >
+                                    {content}
+                                </ReactMarkdown>
                             </article>
                         )}
                     </div>
