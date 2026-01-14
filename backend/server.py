@@ -34,6 +34,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from downloader import VideoDownloader
 from pipeline import ProcessingPipeline
+from notes_generator import NotesGenerator
 
 # ============================================
 # Configuration
@@ -95,10 +96,8 @@ class DownloadStatus(BaseModel):
 # State Management
 # ============================================
 
-
-# ============================================
-# State Management
-# ============================================
+# Single instance of NotesGenerator for reuse
+notes_generator_instance: Optional[NotesGenerator] = None
 
 downloads: dict[str, DownloadStatus] = {}
 processes: dict[str, dict] = {}
@@ -145,14 +144,20 @@ async def process_worker():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Manage app startup and shutdown events"""
+    global notes_generator_instance
     print("🚀 Scaler Companion Backend starting...")
     prevent_sleep()
-    
+
+    # Initialize singletons
+    notes_generator_instance = NotesGenerator()
+    print("🤖 NotesGenerator initialized.")
+
     # Start worker task
     worker_task = asyncio.create_task(process_worker())
-    
+
     yield
-    
+
     print("👋 Scaler Companion Backend shutting down...")
     worker_task.cancel()
 
@@ -274,9 +279,9 @@ async def get_process_status(process_id: str):
 async def list_ollama_models():
     """List available Ollama models"""
     try:
-        from notes_generator import NotesGenerator
-        generator = NotesGenerator()
-        models = generator.list_available_models()
+        if not notes_generator_instance:
+            raise HTTPException(status_code=503, detail="NotesGenerator not initialized")
+        models = notes_generator_instance.list_available_models()
         return {"models": models}
     except Exception as e:
         return {"models": [], "error": str(e)}
