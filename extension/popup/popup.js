@@ -7,7 +7,7 @@
 // Constants
 // ============================================
 const BACKEND_URL = 'http://localhost:8000';
-const DASHBOARD_URL = 'http://localhost:5173';
+const DASHBOARD_URL = 'http://localhost:5174';
 const API_ENDPOINTS = {
     health: `${BACKEND_URL}/health`,
     download: `${BACKEND_URL}/api/download`,

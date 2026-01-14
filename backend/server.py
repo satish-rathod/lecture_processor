@@ -12,6 +12,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from contextlib import asynccontextmanager
+import subprocess
+
+def prevent_sleep():
+    """Prevent macOS from sleeping while this process is running using caffeinate"""
+    try:
+        # -i: Prevent idle sleep
+        # -w <pid>: Wait for process <pid> to exit
+        subprocess.Popen(['caffeinate', '-i', '-w', str(os.getpid())])
+        print("☕️ Sleep prevention enabled (caffeinate)")
+    except Exception as e:
+        print(f"⚠️ Failed to enable sleep prevention: {e}")
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -70,6 +81,7 @@ class ProcessStatus(BaseModel):
     message: Optional[str] = None
     outputDir: Optional[str] = None
     error: Optional[str] = None
+    title: Optional[str] = None # Added for UI matching
 
 class DownloadStatus(BaseModel):
     downloadId: str
@@ -83,18 +95,66 @@ class DownloadStatus(BaseModel):
 # State Management
 # ============================================
 
+
+# ============================================
+# State Management
+# ============================================
+
 downloads: dict[str, DownloadStatus] = {}
 processes: dict[str, dict] = {}
 
+# Job Queue for sequential processing
+JOB_QUEUE: list[dict] = []  # List of {"id": str, "request": ProcessRequest}
+CURRENT_PROCESS_ID: Optional[str] = None
+
 # ============================================
-# Lifespan
+# Lifespan & Worker
 # ============================================
+
+async def process_worker():
+    """Background worker to process jobs sequentially"""
+    global CURRENT_PROCESS_ID
+    print("👷 Starting process worker...")
+    
+    while True:
+        try:
+            if JOB_QUEUE and CURRENT_PROCESS_ID is None:
+                # Pick next job
+                job = JOB_QUEUE.pop(0)
+                process_id = job["id"]
+                request = job["request"]
+                
+                print(f"👷 Worker picking up job: {process_id} ({request.title})")
+                CURRENT_PROCESS_ID = process_id
+                
+                try:
+                    # Run processing (this is async wrapper but runs blocking code in thread pool)
+                    await run_processing(process_id, request)
+                except Exception as e:
+                    print(f"❌ Worker error processing {process_id}: {e}")
+                finally:
+                    print(f"👷 Worker finished job: {process_id}")
+                    CURRENT_PROCESS_ID = None
+            
+            # Wait before next check
+            await asyncio.sleep(1)
+            
+        except Exception as e:
+            print(f"CRITICAL WORKER ERROR: {e}")
+            await asyncio.sleep(5)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Scaler Companion Backend starting...")
+    prevent_sleep()
+    
+    # Start worker task
+    worker_task = asyncio.create_task(process_worker())
+    
     yield
+    
     print("👋 Scaler Companion Backend shutting down...")
+    worker_task.cancel()
 
 # ============================================
 # App Setup
@@ -110,11 +170,7 @@ app = FastAPI(
 # CORS middleware for extension access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "chrome-extension://*",
-        "http://localhost:*",
-        "https://*.scaler.com",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -174,8 +230,8 @@ async def get_download_status(download_id: str):
     return downloads[download_id]
 
 @app.post("/api/process")
-async def start_processing(request: ProcessRequest, background_tasks: BackgroundTasks):
-    """Start AI processing on a downloaded lecture"""
+async def start_processing(request: ProcessRequest):
+    """Enqueue a lecture for AI processing"""
     process_id = str(uuid.uuid4())
     
     # Validate video path exists
@@ -183,23 +239,27 @@ async def start_processing(request: ProcessRequest, background_tasks: Background
     if not video_path.exists():
         raise HTTPException(status_code=400, detail="Video file not found")
     
+    # Initialize status
     processes[process_id] = ProcessStatus(
         processId=process_id,
-        status="pending",
+        status="queued",
         progress=0.0,
-        message="Starting processing..."
+        message="Waiting in queue...",
+        title=request.title
     )
     
-    # Start processing in background
-    background_tasks.add_task(
-        run_processing,
-        process_id,
-        request
-    )
+    # Add to queue
+    JOB_QUEUE.append({
+        "id": process_id,
+        "request": request
+    })
+    
+    print(f"📥 Enqueued job {process_id} for '{request.title}'. Queue length: {len(JOB_QUEUE)}")
     
     return {
         "processId": process_id,
-        "message": "Processing started"
+        "message": "Job queued successfully",
+        "position": len(JOB_QUEUE)
     }
 
 @app.get("/api/process/{process_id}")
@@ -279,6 +339,7 @@ async def list_recordings():
                     "notes": f"/content/{folder_name}/lecture_notes.md" if (output_folder / "lecture_notes.md").exists() else None,
                     "summary": f"/content/{folder_name}/summary.md" if (output_folder / "summary.md").exists() else None,
                     "announcements": f"/content/{folder_name}/announcements.md" if (output_folder / "announcements.md").exists() else None,
+                    "qa_cards": f"/content/{folder_name}/qa_cards.md" if (output_folder / "qa_cards.md").exists() else None,
                     "slides": f"/content/{folder_name}/slides/" if (output_folder / "slides").exists() else None,
                     "transcript": f"/content/{folder_name}/transcript_with_slides.md" if (output_folder / "transcript_with_slides.md").exists() else (f"/content/{folder_name}/transcript.md" if (output_folder / "transcript.md").exists() else (f"/content/{folder_name}/transcript.txt" if (output_folder / "transcript.txt").exists() else None)),
                 }
@@ -306,9 +367,49 @@ async def list_recordings():
                         "downloadDate": datetime.fromtimestamp(video_file.stat().st_mtime).isoformat(),
                         "videoPath": str(video_file),
                         "processed": False,
+                        "progress": 0,
                         "artifacts": None
                     }
     
+    # 3. OVERLAY: Check active processes and queue to update status
+    
+    # helper to update recording in map
+    def update_recording_status(rec_title, status, progress, message, pid=None):
+        norm = normalize_title(rec_title)
+        
+        # If we don't have a record for this yet (e.g. processing a file not in videos or output), create placeholder
+        if norm not in recordings:
+            recordings[norm] = {
+                "id": rec_title, # Fallback ID
+                "title": rec_title,
+                "status": status,
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "path": None,
+                "videoPath": None,
+                "processed": False,
+                "progress": progress,
+                "message": message,
+                "artifacts": None
+            }
+        else:
+            # Update existing record
+            recordings[norm]["status"] = status
+            recordings[norm]["progress"] = progress
+            if message:
+                recordings[norm]["message"] = message
+    
+    # Check running/queued processes
+    for pid, p_data in processes.items():
+        # p_data is ProcessStatus object
+        if p_data.title:
+            update_recording_status(
+                p_data.title, 
+                p_data.status, 
+                p_data.progress, 
+                p_data.message,
+                pid
+            )
+
     # Sort by date descending
     sorted_recordings = sorted(
         recordings.values(), 
@@ -317,6 +418,7 @@ async def list_recordings():
     )
     
     return {"recordings": sorted_recordings}
+
 
 @app.get("/api/recordings/check")
 async def check_recording(title: str = Query(..., description="Recording title to check")):

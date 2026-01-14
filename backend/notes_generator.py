@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Prompts for different note generation tasks
 PROMPTS = {
-    "lecture_notes": """You are an expert technical note-taker creating study materials.
+    "lecture_notes": """You are an expert technical note-taker creating revision-ready study materials.
 
 LECTURE TITLE: {title}
 TRANSCRIPT:
@@ -29,10 +29,10 @@ TRANSCRIPT:
 
 ---
 
-Create **comprehensive, revision-ready notes** using this EXACT structure:
+Create **high-density, technical notes** using this EXACT structure:
 
 ### 1. Overview
-One paragraph: What this lecture covers, prerequisites, and target audience.
+One paragraph: What this lecture covers, prerequisites, and target audience. No fluff.
 
 ### 2. Core Concepts
 Use a TABLE format:
@@ -41,39 +41,37 @@ Use a TABLE format:
 | ... | ... | ... |
 
 ### 3. Detailed Sections
-For EACH major topic discussed:
+For EACH major topic discussed, create a section:
 
 #### [Topic Name]
-- **What**: Clear definition
-- **Why**: Importance/use case  
-- **How**: Implementation steps or process
+- **What**: Precise definition
+- **Why**: Use case/importance
+- **How**: Implementation steps
 - **Example**: Code or real-world example
+- **Trade-offs**: Pros/cons (if mentioned)
 
 ### 4. Comparisons (if applicable)
 Create comparison tables for related concepts:
 | Aspect | Option A | Option B |
 |--------|----------|----------|
 
-### 5. Architecture/Diagrams
-Describe any system architectures or flows in text with clear structure.
-
-### 6. Key Takeaways
+### 5. Key Takeaways
 - Bullet list of 5-8 most important points
 - Include specific values, commands, or configs mentioned
 
-### 7. References & Tools
+### 6. References & Tools
 List any tools, libraries, frameworks, or resources mentioned.
 
 ---
 
 RULES:
-1. Include ALL technical details from the transcript
+1. Include ALL technical details (commands, ports, version numbers).
 2. TABLES: Must use outer pipes `| col |` and aligned columns. Ensure newlines before and after.
 3. FORMATTING: Use standard ASCII hyphens (-), not special characters.
 4. CODE: Put all commands/code in ``` blocks.
-5. Be SPECIFIC, not generic.""",
+5. NO FLUFF: Avoid phrases like "The speaker talks about...". Just state the facts.""",
 
-    "summary": """Create a DETAILED summary of this lecture with structured sections:
+    "summary": """Create a HIGH-DENSITY, TECHNICAL summary of this lecture.
 
 TRANSCRIPT:
 {transcript}
@@ -81,99 +79,99 @@ TRANSCRIPT:
 Generate the summary with these EXACT sections:
 
 ## Lecture Overview
-2-3 sentences on what this lecture is about and its context.
+2-3 sentences on the core technical subject and goal.
 
-## Topics Covered
-List ALL topics discussed as a numbered list:
-1. [Topic Name] - brief description
-2. [Topic Name] - brief description
-...
-
-## Key Concepts Explained
+## Key Technical Concepts
 For each major concept:
-- **[Concept]**: Explanation in 2-3 sentences
+- **[Concept]**: Technical definition and role.
 
-## Technical Details
-- Specific tools, commands, or configurations mentioned
-- Code examples or syntax discussed
-- Any metrics, numbers, or benchmarks
+## Architecture & Flows
+Describe any system architectures, data flows, or processes discussed.
+
+## Technical Details (Important)
+- Tools: Specific tools mentioned
+- Commands: Key commands or syntax
+- Configs: Configuration parameters or defaults
+- Errors: Common errors or pitfalls discussed
 
 ## Practical Applications
-How the concepts apply in real-world scenarios.
+Real-world use cases or scenarios.
 
-## Takeaways
+## Critical Takeaways
 Bullet list of 5-8 most important points to remember.
 
-Be COMPREHENSIVE. Include ALL topics from the lecture.""",
+RULES:
+- Omit conversational filler ("In this video...").
+- Focus on DEFINITIONS, DECISIONS, and SYNTAX.
+- Be concise.""",
 
-    "announcements": """Extract ACTIONABLE ITEMS from this lecture transcript.
+    "announcements": """Extract ONLY EXPLICIT, ACTIONABLE ITEMS from this transcript.
 
 TRANSCRIPT:
 {transcript}
 
-Find and list:
+Rules for extraction:
+1. **Assignments**: MUST have a specific deliverable or deadline.
+2. **Deadlines**: MUST contain a time reference (date, day, time).
+3. **Action Items**: MUST be a direct instruction to the student (e.g., "Install Docker").
+4. **Resources**: Specific links or books mentioned.
+
+IGORE general advice like "You should practice more" or "Study hard".
+
+Format as:
 
 ## Assignments & Deadlines
-- Any homework, projects, or assignments mentioned
-- Due dates and deadlines
-- Submission requirements
+- [Item] (Due: [Date/Time])
 
 ## Action Items
-- Things students need to do
-- Things to install, set up, or prepare
-- Readings or resources to review
+- [Specific Action]
 
 ## Important Announcements
-- Schedule changes (classes, exams, holidays)
-- Grading policies or changes
-- Administrative notices
+- [Schedule/Grading Change]
 
 ## Resources to Check
-- Links, tools, or documentation mentioned
-- Books or papers referenced
-- Websites or repositories
+- [Resource Name/Link]
 
-If no actionable items found in a category, write "None mentioned".
-Be specific - include dates, names, and details.""",
+If a category has NO explicit items, write "None mentioned".
+""",
 
-    "qa_cards": """Create study flashcards from this lecture:
+    "qa_cards": """Create technical flashcards from this lecture.
 
 TRANSCRIPT:
 {transcript}
 
 Create 15-20 flashcards covering:
-- Definitions of key terms
-- Technical concepts
-- Comparisons (X vs Y)
-- Commands/syntax
-- Best practices
+- Definitions of technical terms
+- Command syntax and flags
+- Comparison logic (When to use X vs Y)
+- Architecture details
 
 Format EXACTLY as:
 
-**Q:** [Specific question]
-**A:** [Concise but complete answer]
+**Q:** [Specific, testable question]
+**A:** [Precise answer]
 
 ---
 
-Make questions specific and testable, not vague.""",
+RULES:
+- Avoid vague questions ("What is X?"). Use context ("What is the primary use case for X?").
+- Answers should be short and factual.""",
 
-    "key_points": """Extract key points from this lecture as a comprehensive bullet list:
+    "key_points": """Extract key technical points from this lecture:
 
 TRANSCRIPT:
 {transcript}
 
 List ALL important points including:
-- Definitions and concepts
-- Technical details (commands, configs, code)
-- Best practices mentioned
-- Tools and technologies discussed
-- Comparisons made
-- Examples given
+- Technical definitions
+- Specific commands and configurations
+- Architectural decisions
+- Trade-offs and best practices
 
-Format: One bullet (-) per point. Be specific.""",
+Format: One bullet (-) per point. Be specific and dense.""",
 
     # OPTIMIZED: Single prompt for all outputs (4 sections)
-    "batch_all": """You are an expert technical note-taker. Create FOUR study materials from this lecture.
+    "batch_all": """You are an expert technical note-taker. Create FOUR high-quality study materials from this lecture.
 
 LECTURE TITLE: {title}
 TRANSCRIPT:
@@ -211,7 +209,7 @@ For each topic:
 ## LECTURE_NOTES_END
 
 ## QA_CARDS_START
-Create 12-15 flashcards:
+Create 12-15 technical flashcards:
 **Q:** [Question]
 **A:** [Answer]
 ---
@@ -221,15 +219,10 @@ Create 12-15 flashcards:
 ## SUMMARY_START
 
 ### Lecture Overview
-2-3 sentences on what this lecture covers.
+2-3 sentences on technical content.
 
-### Topics Covered
-1. [Topic] - description
-2. [Topic] - description
-(list ALL topics)
-
-### Key Concepts
-- **[Concept]**: Brief explanation
+### Technical Concepts
+- **[Concept]**: Brief technical explanation
 
 ### Technical Details
 - Tools, commands, configs mentioned
@@ -245,10 +238,10 @@ Create 12-15 flashcards:
 - Any homework or projects mentioned with dates
 
 ### Action Items
-- Things to do, install, or prepare
+- Things to do, install, or prepare (MUST be specific)
 
 ### Important Notices
-- Schedule changes, grading info, admin notices
+- Schedule changes, grading info
 
 ### Resources
 - Links, tools, or documentation mentioned
@@ -257,11 +250,12 @@ Create 12-15 flashcards:
 
 ## ANNOUNCEMENTS_END
 
-RULES: 
+RULES:
 1. Be SPECIFIC. Include all technical details, commands, dates, and examples.
 2. TABLES: Must use outer pipes `| col |` and aligned columns. Ensure newlines before and after tables.
 3. FORMATTING: Use standard ASCII hyphens (-), not special characters.
-4. CODE: Put all commands/code in ``` blocks.""",
+4. CODE: Put all commands/code in ``` blocks.
+5. NO FLUFF.""",
 
     # Combine partial outputs
     "batch_all_combine": """Merge these partial lecture notes into ONE consolidated document.
@@ -278,7 +272,7 @@ Combine following the EXACT structure:
 ## LECTURE_NOTES_END
 
 ## QA_CARDS_START
-[Keep best 12-15 unique flashcards]
+[Keep best 12-15 unique technical flashcards]
 ## QA_CARDS_END
 
 ## SUMMARY_START
@@ -339,8 +333,14 @@ class NotesGenerator:
         models = self.list_available_models()
         return self.model in models or any(m.startswith(self.model.split(":")[0]) for m in models)
     
-    def _chunk_transcript(self, transcript: str) -> List[str]:
-        """Split transcript into chunks for processing"""
+    def _chunk_transcript(self, transcript: str, overlap_size: int = 200) -> List[str]:
+        """
+        Split transcript into chunks for processing with overlap
+        
+        Args:
+            transcript: Full transcript text
+            overlap_size: Number of characters to overlap between chunks (for context)
+        """
         if len(transcript) <= self.chunk_size:
             return [transcript]
         
@@ -349,12 +349,32 @@ class NotesGenerator:
         current_chunk = []
         current_length = 0
         
+        # Keep track of words for overlap
+        overlap_buffer = []
+        
         for word in words:
             word_len = len(word) + 1  # +1 for space
+            
             if current_length + word_len > self.chunk_size:
+                # Chunk full, save it
                 chunks.append(" ".join(current_chunk))
-                current_chunk = [word]
-                current_length = word_len
+                
+                # Start new chunk with overlap from previous
+                # Calculate how many words fit in overlap_size
+                overlap_text = ""
+                new_overlap_words = []
+                current_overlap_len = 0
+                
+                # Take words from end of current_chunk for overlap
+                for w in reversed(current_chunk):
+                    if current_overlap_len + len(w) + 1 <= overlap_size:
+                        new_overlap_words.insert(0, w)
+                        current_overlap_len += len(w) + 1
+                    else:
+                        break
+                
+                current_chunk = new_overlap_words + [word]
+                current_length = current_overlap_len + word_len
             else:
                 current_chunk.append(word)
                 current_length += word_len

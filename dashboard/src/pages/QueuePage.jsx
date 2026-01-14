@@ -20,12 +20,14 @@ function QueuePage() {
             const data = await res.json();
 
             const processing = data.recordings?.filter(r => r.status === 'processing') || [];
+            const queued = data.recordings?.filter(r => r.status === 'queued') || [];
             const completed = data.recordings?.filter(r => r.processed) || [];
-            const pending = data.recordings?.filter(r => r.status === 'downloaded') || [];
+            const downloaded = data.recordings?.filter(r => r.status === 'downloaded') || [];
 
             setQueue({
                 current: processing[0] || null,
-                pending: pending.slice(0, 5),
+                queued: queued,
+                pending: downloaded.slice(0, 5),
                 completed: completed.slice(0, 10)
             });
         } catch (err) {
@@ -58,7 +60,7 @@ function QueuePage() {
                             <div>
                                 <h3 className="font-medium">{queue.current.title}</h3>
                                 <p className="text-sm text-muted-foreground mt-1">
-                                    Processing with AI...
+                                    {queue.current.message || 'Processing...'}
                                 </p>
                             </div>
                             <div className="flex items-center gap-2 text-warning">
@@ -71,12 +73,17 @@ function QueuePage() {
                         <div className="h-2 bg-background rounded-full overflow-hidden">
                             <div
                                 className="h-full bg-primary rounded-full transition-all duration-500"
-                                style={{ width: '45%' }}
+                                style={{ width: `${queue.current.progress || 5}%` }}
                             />
                         </div>
-                        <p className="text-xs text-muted-foreground mt-2">
-                            Generating lecture notes...
-                        </p>
+                        <div className="flex justify-between items-center mt-2">
+                            <p className="text-xs text-muted-foreground">
+                                {queue.current.stage ? `Stage: ${queue.current.stage}` : 'Initializing...'}
+                            </p>
+                            <p className="text-xs font-mono text-muted-foreground">
+                                {Math.round(queue.current.progress || 0)}%
+                            </p>
+                        </div>
                     </div>
                 ) : (
                     <div className="bg-muted/50 border border-border/50 border-dashed rounded-lg p-8 text-center">
@@ -88,34 +95,60 @@ function QueuePage() {
                 )}
             </section>
 
-            {/* Pending */}
-            <section className="mb-8">
-                <h2 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">
-                    Ready to Process ({queue.pending.length})
-                </h2>
-
-                {queue.pending.length > 0 ? (
+            {/* In Queue */}
+            {queue.queued && queue.queued.length > 0 && (
+                <section className="mb-8">
+                    <h2 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">
+                        Waiting in Queue ({queue.queued.length})
+                    </h2>
                     <div className="space-y-2">
-                        {queue.pending.map((item, idx) => (
+                        {queue.queued.map((item, idx) => (
                             <div
                                 key={item.id}
                                 className="flex items-center justify-between bg-muted border border-border rounded-lg p-4"
                             >
                                 <div className="flex items-center gap-3">
-                                    <div className="w-6 h-6 rounded bg-muted-foreground/20 flex items-center justify-center text-xs font-medium text-muted-foreground">
+                                    <div className="w-6 h-6 rounded bg-primary/20 flex items-center justify-center text-xs font-medium text-primary">
                                         {idx + 1}
                                     </div>
                                     <span className="text-sm font-medium">{item.title}</span>
                                 </div>
-                                <span className="text-xs text-muted-foreground">
-                                    Waiting
+                                <span className="text-xs text-muted-foreground bg-background px-2 py-1 rounded">
+                                    Queued
                                 </span>
+                            </div>
+                        ))}
+                    </div>
+                </section>
+            )}
+
+            {/* Ready to Process (Downloaded) */}
+            <section className="mb-8">
+                <h2 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">
+                    Ready to Process ({queue.pending.length})
+                </h2>
+                {queue.pending.length > 0 ? (
+                    <div className="space-y-2">
+                        {queue.pending.map((item) => (
+                            <div
+                                key={item.id}
+                                className="flex items-center justify-between bg-muted border border-border rounded-lg p-4 opacity-75"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <span className="text-sm font-medium">{item.title}</span>
+                                </div>
+                                <button
+                                    onClick={() => navigate('/')}
+                                    className="text-xs text-primary hover:underline"
+                                >
+                                    Process -&gt;
+                                </button>
                             </div>
                         ))}
                     </div>
                 ) : (
                     <p className="text-sm text-muted-foreground">
-                        No recordings waiting to be processed.
+                        No new downloads waiting.
                     </p>
                 )}
             </section>

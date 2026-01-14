@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, FileText, BookOpen, MessageSquare, Image, FileDown, AlignLeft } from 'lucide-react';
+import { ArrowLeft, FileText, BookOpen, MessageSquare, FileDown, AlignLeft, Zap } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+
+import FlashcardViewer from '../components/FlashcardViewer';
 
 function RecordingPage() {
     const { id } = useParams();
@@ -24,9 +26,11 @@ function RecordingPage() {
             const tabs = [];
             if (recording.artifacts.notes) tabs.push({ id: 'notes', label: 'Notes', icon: FileText });
             if (recording.artifacts.summary) tabs.push({ id: 'summary', label: 'Summary', icon: BookOpen });
+            if (recording.artifacts.qa_cards) tabs.push({ id: 'flashcards', label: 'Flashcards', icon: Zap });
             if (recording.artifacts.announcements) tabs.push({ id: 'announcements', label: 'Announcements', icon: MessageSquare });
             if (recording.artifacts.transcript) tabs.push({ id: 'transcript', label: 'Transcript', icon: AlignLeft });
-            if (recording.artifacts.slides) tabs.push({ id: 'slides', label: 'Slides', icon: Image });
+
+            // Replaced slides with Flashcards above
 
             setAvailableTabs(tabs);
 
@@ -39,13 +43,16 @@ function RecordingPage() {
 
     useEffect(() => {
         if (recording?.artifacts) {
-            fetchContent(activeTab);
+            // Flashcards handle their own fetching
+            if (activeTab !== 'flashcards') {
+                fetchContent(activeTab);
+            }
         }
     }, [activeTab, recording]);
 
     const fetchRecording = async () => {
         try {
-            const res = await fetch('/api/recordings');
+            const res = await fetch('http://localhost:8000/api/recordings');
             const data = await res.json();
             const found = data.recordings?.find(r => r.id === decodeURIComponent(id));
             setRecording(found);
@@ -62,7 +69,9 @@ function RecordingPage() {
         setContentLoading(true);
         setContent('');
 
-        const url = recording.artifacts[tab];
+        // Map tab IDs to artifact keys if they differ
+        const artifactKey = tab === 'flashcards' ? 'qa_cards' : tab;
+        const url = recording.artifacts[artifactKey];
 
         if (!url) {
             setContent('*No content available for this tab.*');
@@ -71,7 +80,7 @@ function RecordingPage() {
         }
 
         try {
-            const res = await fetch(url);
+            const res = await fetch(url.startsWith('http') ? url : `http://localhost:8000${url}`);
             if (res.ok) {
                 const text = await res.text();
                 setContent(text || '*Empty file.*');
@@ -90,7 +99,7 @@ function RecordingPage() {
 
         const url = recording.artifacts[artifactType];
         const link = document.createElement('a');
-        link.href = url;
+        link.href = url.startsWith('http') ? url : `http://localhost:8000${url}`;
         link.download = `${recording.title.replace(/\s+/g, '_')}_${artifactType}.md`;
         document.body.appendChild(link);
         link.click();
@@ -174,24 +183,24 @@ function RecordingPage() {
 
                     {/* Content */}
                     <div className="max-w-6xl mx-auto">
-                        {contentLoading ? (
+                        {activeTab === 'flashcards' ? (
+                            <FlashcardViewer url={recording.artifacts.qa_cards.startsWith('http') ? recording.artifacts.qa_cards : `http://localhost:8000${recording.artifacts.qa_cards}`} />
+                        ) : contentLoading ? (
                             <p className="text-muted-foreground">Loading content...</p>
-                        ) : activeTab === 'slides' ? (
-                            <div>
-                                <p className="text-sm text-muted-foreground mb-4">
-                                    Slides are saved in the output folder at: <code className="bg-muted px-2 py-1 rounded">{recording.path}/slides/</code>
-                                </p>
-                            </div>
                         ) : (
                             <article className="markdown-content">
                                 <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
                                     urlTransform={(uri) => {
                                         if (uri.startsWith('http') || uri.startsWith('//') || uri.startsWith('data:')) return uri;
+                                        // For relative images in markdown, point to server content
                                         const currentUrl = recording.artifacts[activeTab];
                                         if (currentUrl) {
+                                            // Handle server-relative paths
                                             const basePath = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1);
-                                            return `${basePath}${uri}`;
+                                            // Ensure base path is absolute if relative
+                                            const fullBase = basePath.startsWith('http') ? basePath : `http://localhost:8000${basePath}`;
+                                            return `${fullBase}${uri}`;
                                         }
                                         return uri;
                                     }}

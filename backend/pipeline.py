@@ -12,6 +12,17 @@ from datetime import datetime
 from typing import Optional, Callable
 import json
 import re
+import subprocess
+
+def prevent_sleep():
+    """Prevent macOS from sleeping while this process is running using caffeinate"""
+    try:
+        # -i: Prevent idle sleep
+        # -w <pid>: Wait for process <pid> to exit
+        subprocess.Popen(['caffeinate', '-i', '-w', str(os.getpid())])
+        print("☕️ Sleep prevention enabled (caffeinate)")
+    except Exception as e:
+        print(f"⚠️ Failed to enable sleep prevention: {e}")
 
 from transcriber import WhisperTranscriber
 from frame_extractor import FrameExtractor
@@ -793,6 +804,7 @@ class ProcessingPipeline:
 # For testing
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+    prevent_sleep()
     
     pipeline = ProcessingPipeline(
         output_base="../output",
